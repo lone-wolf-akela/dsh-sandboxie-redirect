@@ -155,6 +155,27 @@ check("the redirect argv is explicit, ordered, and preserves the command verbati
   ]);
 });
 
+check("every launcher-module helper the CLI calls is actually imported", () => {
+  // A missing import binding is not a syntax error and does not throw at import
+  // time: it throws a ReferenceError the moment that function runs, which for
+  // `--manage show` means a stack trace instead of the box it was asked about.
+  // This check exists because exactly that shipped once.
+  const source = fs.readFileSync(path.join(pluginDir, "lib", "cli.mjs"), "utf8");
+  const imported = new Set();
+  for (const match of source.matchAll(/^import\s*\{([^}]*)\}\s*from/gm)) {
+    for (const raw of match[1].split(",")) {
+      const name = raw.trim().split(/\s+as\s+/).pop();
+      if (name) imported.add(name);
+    }
+  }
+  const helpers = [
+    "rootFor", "boxRoot", "sbieSandboxRoot", "boxExists", "sbieIni", "reloadConfig", "sbieDir",
+    "canonicalWorkspace", "boxNameCandidates", "boxNameFor", "listManagedBoxes", "managedBoxesFor", "removeBox"
+  ];
+  const missing = helpers.filter((name) => new RegExp(`\\b${name}\\s*\\(`).test(source) && !imported.has(name));
+  assert.deepEqual(missing, [], `lib/cli.mjs calls ${missing.join(", ")} without importing it`);
+});
+
 check("the launcher's own flags are parsed by its own parser", async () => {
   // The provider's argv must survive parseRunnerArgv; check the contract by
   // shape (the launcher itself is exercised by test/run-tests.mjs inside DSH).

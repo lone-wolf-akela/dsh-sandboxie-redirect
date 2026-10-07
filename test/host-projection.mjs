@@ -356,6 +356,20 @@ check("the reported copy root follows Sandboxie's configured FileRootPath", () =
   assert.equal(host.rootForBox(box, none), boxRoot(box));
   const unknown = host.parseIniSections("[GlobalSettings]\r\nFileRootPath=D:\\sbie\\%SID%\\%SANDBOX%\r\n");
   assert.equal(host.rootForBox(box, unknown), boxRoot(box), "an unexpandable template must not be trusted");
+
+  // An EMPTY box-level value must not mask the global one. Sandboxie answers an
+  // unset key as a SUCCESSFUL query with no output, and writes `FileRootPath=`
+  // itself, so a plain `??` would stop at the box section and silently ignore
+  // the global setting that the machine is actually using.
+  const emptyThenGlobal = host.parseIniSections([
+    "[GlobalSettings]",
+    "FileRootPath=D:\\global\\%SANDBOX%",
+    "",
+    `[${box}]`,
+    "FileRootPath="
+  ].join("\r\n"));
+  assert.equal(host.fileRootPathFor(box, emptyThenGlobal), "D:\\global\\%SANDBOX%");
+  assert.equal(host.rootForBox(box, emptyThenGlobal), path.join("D:\\global", box));
   } finally {
     if (previousRoot === undefined) delete process.env.DSH_SBIE_ROOT;
     else process.env.DSH_SBIE_ROOT = previousRoot;
