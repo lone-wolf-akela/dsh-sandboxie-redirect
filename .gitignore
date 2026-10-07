@@ -1,0 +1,16 @@
+# Runtime logs. The plugin writes provider.log / host.log / tool.log; they carry
+# local paths and machine state, so they are never part of the repository.
+*.log
+
+# Local extraction aid for test/validate-patch.mjs (js-yaml taken out of the
+# installed harness). Regenerate locally instead of committing.
+/asar-yaml/
+
+# Install/dependency trees and scratch directories.
+node_modules/
+/.recon/
+
+# Editor and OS noise.
+.DS_Store
+Thumbs.db
+*.swp

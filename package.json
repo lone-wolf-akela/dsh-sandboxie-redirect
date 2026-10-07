@@ -1,0 +1,38 @@
+{
+  "name": "dsh-sandboxie-redirect",
+  "version": "0.2.1",
+  "private": true,
+  "description": "DSH sandbox runner and copy-on-write permission preset: workspace writes pass through, writes anywhere else are redirected into a per-workspace Sandboxie box.",
+  "type": "module",
+  "main": "lib/host.mjs",
+  "exports": {
+    ".": {
+      "default": "./lib/host.mjs"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./provider": {
+      "default": "./lib/provider.mjs"
+    },
+    "./note": {
+      "default": "./lib/note.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    }
+  },
+  "bin": {
+    "dsh-sbie-run": "./bin/dsh-sbie-run.mjs"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  }
+}

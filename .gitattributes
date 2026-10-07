@@ -1,0 +1,3 @@
+# Keep one line ending in the repository and on every checkout: the plugin is
+# plain ESM/YAML and is edited on Windows, macOS and Linux alike.
+* text=auto eol=lf

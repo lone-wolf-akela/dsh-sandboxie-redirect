@@ -1,0 +1,108 @@
+# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: deepseek-account
+    model: deepseek-flash
+    reasoningEffort: high
+- id: ui-settings-account
+  name: "@deepseek-ai/dsh-client-ui-settings-account"
+  config:
+    version: 1
+    step: done
+    purpose: both
+    process: detailed
+    completion: completed
+    usage: detailed
+    developerTools: true
+- id: ui-chat
+  name: "@deepseek-ai/dsh-client-ui-chat"
+  config:
+    transcriptView: detailed
+    performanceUsage: detailed
+- id: ui-settings
+  name: "@deepseek-ai/dsh-client-ui-settings"
+  config:
+    enabled: true
+- id: session-log-deepseek
+  name: "@deepseek-ai/dsh-session-log-deepseek"
+  config:
+    enabled: true
+- id: ui-theme
+  name: "@deepseek-ai/dsh-client-ui-theme"
+  config:
+    fontSize: 17
+# ── dsh-sandboxie-redirect: the copy-on-write permission preset ──────────────
+# Adds a FOURTH permission preset without touching the other three. Selecting
+# "写时复制" makes shell commands run inside a per-workspace Sandboxie box:
+# workspace writes still land on the real disk, while writes/edits/deletes
+# anywhere else succeed but land in that box's copy under
+# C:\Sandbox\<user>\<box>\. read-only / workspace-write keep their original
+# ACL restricted-token behaviour; danger-full-access is untouched.
+# See C:\Users\liuruoyang\.dsh\plugins\dsh-sandboxie-redirect\README.zh.md
+#
+# The provider is a subclass of @deepseek-ai/dsh-sandbox-local that diverts only
+# the copy-on-write preset (a configured runnerCommand cannot do this: it would
+# apply to every mode). It carries no runnerCommand of its own, so every other
+# mode delegates to the stock provider's own ACL path.
+#
+# NOTE the two-row shape, which the patch vocabulary forces. On a NON-insert
+# patch, `name` is a GUARD rather than a reassignment: applyEntryPatches keeps
+# `id` plus the remaining overrides, and skips the whole patch when `name` does
+# not equal the target row's name. So the stock row cannot be re-pointed in
+# place — it has to be disabled here, with the provider added as its own row.
+- id: sandbox
+  name: "@deepseek-ai/dsh-sandbox-local"
+  disabled: true
+#
+# The preset deliberately bundles the workspace-write sandbox mode: the preset
+# identity is what selects the redirect, so the mode stays a legal literal.
+# A patch replaces the whole config, so the other three are restated verbatim
+# and in their original order — `copy-on-write` sits AFTER workspace-write so
+# fresh sessions keep defaulting to workspace-write. The three originals carry
+# no `name` on purpose: without one the client uses its own localized labels.
+- id: permission
+  name: "@deepseek-ai/dsh-permission-presets"
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      copy-on-write:
+        sandbox: workspace-write
+        approval: ask
+        # The leading glyph is deliberate and load-bearing: the shipped dropdown
+        # takes its icons from a CLOSED id->icon map, so a fourth preset renders
+        # with none, and nothing about that row is a stable handle for a DOM
+        # shim (its shape changes when the row is selected — README §1.4). The
+        # display name is host config rendered verbatim in every surface, so the
+        # glyph belongs here, and swapping it is a one-line edit. `❐` is U+2750,
+        # the classic "two sheets" copy dingbat.
+        name: '❐ 写时复制'
+        description: '工作区照旧写穿真盘；工作区外的写入、修改、删除不会失败，改落到本工作区的 Sandboxie 副本里（可在 SandMan 查看、恢复或丢弃）。'
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+#
+# ONE row, and that is a hard requirement, not a style choice.
+#
+# This package declares `dsh.client` (the header chip). The client-modules
+# registry composes a client package only while exactly ONE of its loader
+# entries is active, and it fails the WHOLE BOOT otherwise:
+#
+#   client-modules: package dsh-sandboxie-redirect resolves from multiple
+#   active Loader sources: "…/lib/host.mjs", "…/lib/tool.mjs"; remove one entry
+#
+# Which entries count depends on activation timing, so one row per half made
+# every start a race — and it eventually lost, leaving the app offering
+# "disable third-party plugins" as the only way in. The note, the header-chip
+# projection and the `sandbox_clear` tool are now plain imports, wired from this
+# provider's constructor (see wireCompanions() in lib/provider.mjs).
+- insert:
+    - id: sandbox-copy-on-write
+      name: 'C:\Users\liuruoyang\.dsh\plugins\dsh-sandboxie-redirect\lib\provider.mjs'
