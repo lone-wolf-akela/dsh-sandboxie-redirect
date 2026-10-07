@@ -186,6 +186,9 @@ check("the model note carries the operating rules an agent cannot infer", () => 
     [/DSH_SBIE_BOX/, "must name the authoritative box env vars"],
     [/resolved against Sandboxie's own state/i, "must warn not to derive the box name from the path"],
     [/sandbox_permissions[^.]*OUTSIDE/i, "must explain that escalation runs the call outside the box"],
+    [/written for the ACL presets/i, "must say WHY the parameter description reads like the denial-then-retry story"],
+    [/is ever denied/i, "must state that an out-of-workspace write is not denied under this preset"],
+    [/no denied command to retry/i, "must tell the agent not to wait for a denial marker before escalating"],
     [/silently captures anything you INSTALL/i, "must warn that out-of-workspace installs land in the copy"],
     [/never enumerate or walk `C:\\Sandbox\\`/i, "must forbid walking C:\\Sandbox from inside the box"],
     [/"--manage"|`--manage`/, "must say --manage cannot run from inside the box"]

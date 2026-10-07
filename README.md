@@ -89,6 +89,7 @@ In-session, `sandbox_clear` inspects or discards this workspace's copy: `mode: "
 
 ## Notes for users
 
+- **The `sandbox_permissions` parameter description is not written for this preset.** DSH generates that one text for every preset, and it reads as "the retry after a denial" — under Copy-on-write an out-of-workspace write is never denied (it succeeds into the copy), so no denial marker appears and there is nothing to retry. The session's policy text says so explicitly; escalation is a deliberate "run this one call on the real disk" lever, not a follow-up to a failure.
 - **Read-side divergence (important)**: one path can look different depending on who reads it.
   - Shell commands run inside the box and may see the merged view — if an earlier command wrote that file outside the workspace, the command sees the copy's version.
   - DSH's file tools run outside the box and always see the real disk.

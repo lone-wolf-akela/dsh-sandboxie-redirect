@@ -50,6 +50,7 @@
 
 ## 已知问题与规避
 
+- **升权说明的文本不归本插件所有，也不该去改**：`sandbox_permissions` 的参数描述来自 `@deepseek-ai/dsh-sandbox` 的 `sandboxPermissionsDescription(subject)`，被 `dsh-tool-pwsh` / `dsh-tool-bash` / `dsh-tool-fs` 在**注册工具时**烘进参数 schema，而 `dsh-tools` 对编译结果做了 `deepFreeze()`（`lib/index.js` 的 `binding(deepFreeze(schema))`），并且它是 **registry 全局**的——同一段文本服务所有预设，这正是上游"schema 是全局的，有效模式才是每次调用的事实"的设计。因此按会话纠正它只有一条路：我们自己拥有的 `sandbox:copy-on-write` systemPrompt 文本（`redirectPolicyNote`）。那段文本必须**显式纠正**"先被拒、再重试"的措辞，并说明本模式下区外写入**根本不会被拒**、不会出现 `[sandbox: file access denied under … mode]`、也就没有"被拒的命令"可重试（`test/unit.mjs` 有三条断言钉住这一点）。正解在上游：需要"按模式提供升权文案"的扩展点。
 - **遗留 `sandbox/box` 事件**：只容忍、不采信。它记录的是历史，不是"沙盒现在存在"的证据；投影从不据此报出名称。
 - **投影 state 会被 checkpoint**：改投影语义需升 `stateVersion` 作废旧缓存行。
 - **图标 shim 的约束**（`lib/client.js`）：
