@@ -41,7 +41,11 @@ if (boxFlag !== "" || boxRoot !== "") {
   process.exit(2);
 }
 
-const ENTRIES = ["lib", "bin", "test", "tools", "package.json", "README.zh.md", "README.md", "AGENTS.md"];
+// What to copy: the PUBLISHED file list (derived from the manifest, so it
+// cannot drift from what npm ships) plus the developer-only trees the manual
+// channel also puts on the target machine.
+const manifest = JSON.parse(fs.readFileSync(path.join(source, "package.json"), "utf8"));
+const ENTRIES = [...new Set([...(manifest.files ?? []), "package.json", "test", "tools", "AGENTS.md"])];
 
 const sha = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const relativeFiles = (root) => {

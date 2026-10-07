@@ -81,3 +81,11 @@ node test\validate-patch.mjs <某个 patch.yml>   # 也可校验 profile 补丁 
 `validate-patch.mjs` 需要 js-yaml（harness 自己用的解析器），按顺序在 `node_modules`（devDependency）、`asar-yaml/`（本地从 `app.asar` 提取的副本）、`$DSH_HOME/profiles/node_modules` 里找，或用 `DSH_YAML` 指定。它同时支持两种行形态：bundle 层的**包名**行，以及手工通道的**绝对路径**行（后者会从行反推包目录，因此校验的是实际挂载的那份代码）。
 
 验收与 soak 必须在沙盒外、普通用户令牌（Medium IL）下运行；在 DSH 的 Low IL 沙盒里跑无意义。测试会把 `DSH_SBIE_LOG_DIR` 指到临时目录，避免污染真实用户的 `$DSH_HOME/state`。
+
+## 环境变量、沙盒根与迁移
+
+- `DSH_SBIE_ROOT`：沙盒根覆盖。`sbieSandboxRoot()` 默认按 `%SystemDrive%\Sandbox\%USERNAME%` 推导；Sandboxie-Plus 允许把沙盒目录改到别处（`FileRootPath`），而同一个根要被三个进程用到——启动器 / `--manage`（能问 Sandboxie 服务）、宿主半边（只读 ini）、测试（什么都问不了）——所以用这个变量统一覆盖；`boxRoot(box, root)` 也接受调用方自己解析好的根。**尚未实现**：自动读 `FileRootPath` 并展开 `%USER%`/`%SANDBOX%`，所以改过目录的用户必须设这个变量（README 已写明）。
+- 其它覆盖：`DSH_SBIE_NODE`（真 node）、`DSH_SBIE_LOG_DIR`（日志目录）、`DSH_SBIE_INI`（ini 路径）、`DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT`（koffi 定位）。
+- **迁移陷阱（会直接导致启动失败）**：从手工通道切到 bundle 通道时，profile 的 `cordis.patch.yml` 里那三条行（绝对路径 `insert` + `sandbox` + `permission`）**必须先删掉**。同一个声明了 `dsh.client` 的包有两个活动 loader 行，client-modules 会拒绝合成并让整个 boot 失败（"resolves from multiple active Loader sources"）。
+- **CLI 不能碰桌面应用独占的 profile**：`dsh --profile desktop …` 会被拒绝（"profile desktop is managed exclusively by the Electron application"），那是 `plugin_manager`（应用内）的地盘；其它 profile 走 CLI。
+- `tools/install.mjs` 的拷贝清单已从 `package.json` 的 `files` 派生，不再手工维护、不会与发布内容漂移。

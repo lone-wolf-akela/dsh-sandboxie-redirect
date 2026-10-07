@@ -1,6 +1,6 @@
 {
   "name": "@lone-wolf-akela/dsh-sandboxie-redirect",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "DSH bundle adding a copy-on-write permission preset: shell commands run inside a per-workspace Sandboxie box, so writes outside the workspace land in the box's copy while the real disk is untouched.",
   "type": "module",
   "license": "MIT",

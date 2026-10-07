@@ -86,6 +86,24 @@ check("box root sits under the per-user sandbox root", () => {
   assert.ok(canonicalWorkspace("C:\\ws\\") === "C:\\ws" || canonicalWorkspace("C:\\ws\\").length > 0);
 });
 
+check("a relocated sandbox folder is reachable: DSH_SBIE_ROOT wins, and boxRoot takes a resolved root", () => {
+  const previous = process.env.DSH_SBIE_ROOT;
+  try {
+    delete process.env.DSH_SBIE_ROOT;
+    assert.ok(
+      boxRoot("dsh_a_b").endsWith(path.join("Sandbox", process.env.USERNAME ?? "user", "dsh_a_b")),
+      "the default layout must survive untouched"
+    );
+    process.env.DSH_SBIE_ROOT = "D:\\sbie\\root";
+    assert.equal(sbieSandboxRoot(), path.resolve("D:\\sbie\\root"));
+    assert.equal(boxRoot("dsh_a_b"), path.join("D:\\sbie\\root", "dsh_a_b"));
+    assert.equal(boxRoot("dsh_a_b", "E:\\already\\resolved"), path.join("E:\\already\\resolved", "dsh_a_b"));
+  } finally {
+    if (previous === undefined) delete process.env.DSH_SBIE_ROOT;
+    else process.env.DSH_SBIE_ROOT = previous;
+  }
+});
+
 check("the redirect argv is explicit, ordered, and preserves the command verbatim", () => {
   const argv = redirectArgv({
     nodePath: "C:\\node\\node.exe",

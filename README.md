@@ -2,95 +2,149 @@
 
 > **中文版**：[README.zh.md](README.zh.md)
 
-Adds a fourth permission preset, **Copy-on-write (写时复制)**, to DSH: writes inside the workspace go to the real disk as usual; writes, edits, and deletions outside the workspace do not fail — they land in a Sandboxie sandbox copy dedicated to that workspace, leaving the real disk untouched. The three original presets (read-only, workspace-write, danger-full-access) behave exactly as before.
+A [DSH](https://github.com/deepseek-ai/deepseek-harness) bundle that adds a fourth permission preset, **Copy-on-write (写时复制)**: shell commands run inside a Sandboxie box dedicated to the workspace, so writes inside the workspace land on the real disk as usual, while writes, edits and deletions anywhere else keep succeeding — but only inside that box's copy. The three shipped presets (read-only, workspace-write, danger-full-access) behave exactly as before.
 
-## Overview
+```
+┌─ your DSH session ────────────────┐
+│  file policy: copy-on-write       │
+│                                   │
+│  shell command ──▶ Sandboxie box ─┼──▶ workspace writes    → real disk
+│  (inside the box)  (per workspace)┼──▶ writes elsewhere    → box copy
+│                                   │    deletes elsewhere   → tombstone in copy
+│  read/write/edit ──▶ host process ┼──▶ unchanged: writable inside the
+│  (outside the box)                │    workspace, refused outside it
+└───────────────────────────────────┘
+```
 
-- Installed as a permission preset; does not modify the DSH application itself.
-- Requires Sandboxie-Plus. Copies can be inspected, recovered, or discarded.
-- Intended to prevent accidental writes, provide undo, and keep system directories clean; it does not defend against malicious programs (Sandboxie offers no such guarantee).
+- Windows only, and it needs [Sandboxie-Plus](https://sandboxie-plus.com/) installed (the sandbox service must be running).
+- It is a permission **preset**, not a patch to the DSH application: nothing inside the app is modified.
+- Its purpose is accident prevention, undo, and keeping system directories clean. It is **not** a defence against malicious programs — Sandboxie itself makes no such promise, and a plugin runs with the same access as the app hosting it.
 
 ## Terminology
 
 | Term | Meaning |
 |---|---|
-| Real disk | Where files actually live on the system (for example `C:\Users\…`). |
-| Sandbox | An isolated environment created by Sandboxie; this plugin creates one dedicated sandbox per workspace. |
-| Copy | The sandbox's private storage for changes to files outside the workspace (under `C:\Sandbox\…`), kept separate from the real files. |
-| Inside / outside the sandbox | Under Copy-on-write, shell commands run inside the sandbox; the DSH app itself and its file tools (read/write/edit) run outside it. |
-| Merged view | When a command reads a file inside the sandbox, the sandbox overlays the copy's content onto the real file before presenting it. |
-| SandMan | Sandboxie-Plus's built-in graphical management UI, for viewing, recovering, and deleting sandboxes. |
+| Real disk | Where files actually live (for example `C:\Users\…`). |
+| Sandbox / box | The isolated environment Sandboxie creates. This plugin creates one per workspace. |
+| Copy | The box's private storage for changes to files outside the workspace (under the sandbox root), kept apart from the real files. |
+| Inside / outside the box | Under Copy-on-write, shell commands run inside the box; the DSH app and its file tools (read/write/edit) run outside it. |
+| Merged view | What a command inside the box sees: the copy's content overlaid on the real file. |
+| SandMan | Sandboxie-Plus's GUI, for inspecting, recovering and deleting sandboxes. |
 
 ## Installation
 
-**Prerequisite**: install [Sandboxie-Plus](https://sandboxie-plus.com/) first (download it from the official site, or get the installer from its [GitHub repository](https://github.com/sandboxie-plus/Sandboxie)). Every sandbox used by this plugin is created and managed by Sandboxie.
+**Prerequisite:** [Sandboxie-Plus](https://sandboxie-plus.com/) ([source](https://github.com/sandboxie-plus/Sandboxie)). The installer must have created its service; every box this plugin uses is created and managed by Sandboxie.
 
-Steps:
-
-1. Place the plugin in `C:\Users\<you>\.dsh\plugins\dsh-sandboxie-redirect\`.
-2. Edit the profile patch file `C:\Users\<you>\.dsh\profiles\desktop\cordis.patch.yml` to include this plugin. A complete template is in `cordis.patch.yml.new` at the repository root; change the plugin paths to your actual paths. The essentials are three changes:
-   - replace the shell sandbox provider with this plugin (disable the original `sandbox` row and add a provider row);
-   - add the `copy-on-write` entry to the permission presets;
-   - the model-facing note, the title-bar sandbox name, and the `sandbox_clear` tool are mounted automatically by the provider — no extra rows needed.
-3. Restart the DSH client.
-4. Select **Copy-on-write** in the permission dropdown.
-
-When updating plugin files, use `tools/install.mjs`, and run it **outside the sandbox** (that is, with the DSH session in a mode other than Copy-on-write, or in an ordinary terminal): under Copy-on-write, writes made inside the sandbox are redirected and never reach the real disk, so the script detects this and refuses to run, to avoid "reports success but nothing changed".
+The package is a DSH *bundle*: installing it also adds its configuration layer, so no profile file needs hand-editing.
 
 ```powershell
-$node = "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe"
-& $node .\tools\install.mjs
+# install into a profile (the CLI creates it if needed and appends this bundle)
+dsh plugin --profile <profile> add @lone-wolf-akela/dsh-sandboxie-redirect
+
+# check the layer without booting, then start
+dsh --profile <profile> --dump-config      # expect a "# == @lone-wolf-akela/dsh-sandboxie-redirect" layer
+dsh --profile <profile>
 ```
 
-## Features
+Other supported sources, for a local checkout or an offline machine:
 
-### Copy-on-write preset
+```powershell
+dsh plugin --profile <profile> add C:\path\to\dsh-sandboxie-redirect   # a checkout (linked)
+dsh plugin --profile <profile> add .\lone-wolf-akela-dsh-sandboxie-redirect-0.3.0.tgz
+```
 
-Once selected, shell commands run inside the sandbox:
+> **Which command for which profile?** The CLI refuses to touch a profile that a running desktop app owns (`profile "desktop" is managed exclusively by the Electron application`). For that profile, install from inside the app: **Settings → Plugins → add a bundle**, and give the package name above. For any other profile, the CLI works normally.
+
+Then restart the client, open the permission dropdown, and select **❐ Copy-on-write 写时复制**. The preset appears once per session as needed; the title bar shows the box name after the first shell command.
+
+### Migrating from a hand-mounted copy
+
+Earlier revisions were installed by copying the tree into `~/.dsh/plugins/dsh-sandboxie-redirect` and adding rows to `~/.dsh/profiles/<profile>/cordis.patch.yml`. If your profile still carries those rows, **remove them** before switching to the bundle channel: two active rows into the same `dsh.client` package fail the boot ("resolves from multiple active Loader sources"). The rows to delete are the ones whose `name` is an absolute path ending in `lib\provider.mjs`, plus the `sandbox` and `permission` rows this plugin added. `tools/install.mjs` remains in the repository for that manual channel, and it must be run outside the sandbox.
+
+## What it does
+
+### The Copy-on-write preset
 
 | Location | Behavior |
 |---|---|
-| Writes, edits, deletions inside the workspace | Applied directly to the real disk |
-| Writes, edits outside the workspace | The command reports success, but changes happen only in that workspace's sandbox copy; the real disk is unaffected |
-| Deletions outside the workspace | The real file is kept; the copy records only a deletion marker |
+| Writes, edits, deletions **inside** the workspace | Applied directly to the real disk |
+| Writes, edits **outside** the workspace | The command reports success, but the change lands in that workspace's box copy; the real disk is untouched |
+| Deletions **outside** the workspace | The real file survives; the copy records only a deletion marker |
 
-DSH's file tools (read/write/edit) run outside the sandbox and still follow the workspace-write rule: writable inside the workspace, refused outside it. Therefore, to read a file from the "sandbox's point of view", read it with a shell command (see "Read-side divergence" below).
+DSH's own file tools (read/write/edit) run outside the box and keep the workspace-write rule: writable inside the workspace, refused outside it. To read a file *as the sandbox sees it*, read it with a shell command — see [Read-side divergence](#read-side-divergence).
 
-Under this preset, the session's policy text gains an extra paragraph that tells the model how this mode behaves and what to watch out for.
+Under this preset the session's policy text gains a paragraph that tells the model how the mode behaves and what to watch for, so an agent does not have to infer it.
 
 ### Sandbox name in the title bar
 
-Under Copy-on-write, the title bar shows the current sandbox name (for example `dsh_able_willow`; hovering shows the copy's root path). It appears only when two conditions hold: the session's preset is Copy-on-write, and that workspace has actually created a sandbox. So it appears after the first command and disappears when the preset is switched or the sandbox is cleaned.
+Under Copy-on-write the title bar shows the box name (for example `dsh_able_willow`; hover for the copy's root). It appears only when both hold: this session's preset is Copy-on-write, and this workspace really owns a box — so it shows up after the first command, and disappears when the preset changes or the box is cleaned.
 
 ### Permission dropdown icon
 
-The Copy-on-write preset carries an icon (two overlapping rectangles) in both the dropdown and the bottom button, following the active theme.
+The preset carries an icon (two overlapping sheets) in the dropdown and the bottom button, following the active theme. The preset's display name starts with `❐` for the same reason: the shipped dropdown takes icons from a closed id→icon map, so the name is the one surface that always renders.
 
 ### The `sandbox_clear` tool
 
-Inside a session, the `sandbox_clear` tool can inspect or clear this workspace's sandbox copy: `mode: "inspect"` only reports (file count, size), while `mode: "clear"` deletes the copy and its configuration. It is available in every permission mode and can only touch this workspace's sandbox.
+In-session, `sandbox_clear` inspects or discards this workspace's copy: `mode: "inspect"` reports (file count, size), `mode: "clear"` deletes the copy and its configuration. It works in every permission mode, and can only ever touch boxes Sandboxie attributes to *this* workspace.
 
 ## Notes for users
 
-- **Read-side divergence (important)**: the same path can look different depending on the tool.
-  - Shell commands run inside the sandbox and may see the merged view: if an earlier command wrote to that file outside the workspace, the command sees the version in the sandbox copy.
-  - DSH's file tools run outside the sandbox and always see the real disk.
-  - Therefore, to check "what did a command write outside the workspace", read with a shell command; to check "was the real disk changed", read with DSH's file tools (or File Explorer).
-- **Copy location**: ordinary paths are at `<sandbox root>\drive\<drive letter>\<path>`; paths under the user profile are at `<sandbox root>\user\current\<relative path>`. The sandbox root is `C:\Sandbox\<user>\<sandbox name>\`.
-- **Disk usage**: copies are not reclaimed automatically; they keep accumulating.
-- **`C:\Windows\Temp`**: modifying an existing file there may be refused (native Sandboxie behavior, not caused by this plugin); creating and deleting files there work normally.
-- **Concurrency**: concurrent commands for the same workspace share one sandbox and can see each other's changes.
-- **Escalation**: under Copy-on-write, if a command needs more permissions and you escalate it, that single call runs entirely outside the sandbox and is not restricted by it; the next command returns to the sandbox.
-- **Writing back**: changes in the copy are not merged back to the real disk by default. To recover, view and restore the relevant files in SandMan; this plugin's cleanup tool only deletes, it does not write back.
+- **Read-side divergence (important)**: one path can look different depending on who reads it.
+  - Shell commands run inside the box and may see the merged view — if an earlier command wrote that file outside the workspace, the command sees the copy's version.
+  - DSH's file tools run outside the box and always see the real disk.
+  - So: to see "what a command wrote outside the workspace", read with a shell command; to see "was the real disk changed", read with DSH's file tools (or File Explorer).
+- **Copy location**: ordinary paths at `<sandbox root>\drive\<drive>\<path>`; paths under the user profile at `<sandbox root>\user\current\<relative path>`. The default sandbox root is `C:\Sandbox\<user>\<box>`; if you relocated Sandboxie's sandbox folder, set `DSH_SBIE_ROOT` to the new root (see [Environment](#environment)).
+- **Disk usage**: copies are not reclaimed automatically and keep growing.
+- **`C:\Windows\Temp`**: modifying an *existing* file there may be refused — native Sandboxie behavior, not this plugin's. Creating and deleting files there works.
+- **Concurrency**: concurrent commands in one workspace share one box and see each other's changes.
+- **Escalation**: if a command escalates for wider permissions, that single call runs entirely outside the box; the next command returns to the box. Escalation is not a way to make one file real.
+- **Write-back**: copy changes are not merged back automatically. Recover files in SandMan; `sandbox_clear` only deletes.
+- **Uninstalling** the bundle removes the preset and the rows, but the boxes and their copies stay on disk. Clean them first (`sandbox_clear`, or `--manage clean`) if you want the space back.
 
-## Managing sandboxes manually
+## Managing boxes manually
 
 ```powershell
-node bin\dsh-sbie-run.mjs --manage list                    # list managed sandboxes
-node bin\dsh-sbie-run.mjs --manage clean "<workspace>"     # clean a workspace's sandboxes
-node bin\dsh-sbie-run.mjs --manage delete-box <sandbox>    # delete a specific sandbox
+node bin\dsh-sbie-run.mjs --manage list                  # list managed boxes
+node bin\dsh-sbie-run.mjs --manage clean "<workspace>"    # clean one workspace's boxes
+node bin\dsh-sbie-run.mjs --manage delete-box <box>      # delete one box
 ```
 
-`--manage` must run outside the sandbox (an ordinary terminal, or a danger-full-access session): processes inside a sandbox cannot see the sandbox list.
+`--manage` must run outside the box (an ordinary terminal, or a `danger-full-access` session): a process inside a box cannot see Sandboxie's box list. The same operations are available in SandMan.
 
-You can also manage the corresponding sandboxes through Sandboxie-Plus's built-in GUI.
+## Environment
+
+All optional; each exists as an escape hatch rather than a configuration surface.
+
+| Variable | Effect |
+|---|---|
+| `DSH_SBIE_NODE` | The `node.exe` that runs the launcher. Set it if the plugin cannot find one (the desktop app's own runtime, then `$DSH_HOME/dsh-runtimes`, are searched automatically). |
+| `DSH_SBIE_ROOT` | The sandbox root, for a relocated Sandboxie sandbox folder. Default `%SystemDrive%\Sandbox\%USERNAME%`. |
+| `DSH_SBIE_LOG_DIR` | Where diagnostics land. Default `$DSH_HOME/state/dsh-sandboxie-redirect`. |
+| `DSH_SBIE_INI` | The Sandboxie configuration file to read. Default `%SystemDrive%\Windows\Sandboxie.ini`. |
+| `DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT` | A `koffi.node` (or a directory holding one) for the launcher, when the app's copy cannot be found. |
+| `DSH_SBIE_BOX` / `DSH_SANDBOX_ROOT` | **Set by the plugin** inside a command; authoritative for "which box am I in" — never derive the name from the workspace path. |
+
+Diagnostics: `provider.log`, `host.log`, `tool.log` under the log directory above. The host log is capped at 512 KB and records only state transitions.
+
+## How it works (short)
+
+- The bundle layer disables the stock `sandbox` row (`@deepseek-ai/dsh-sandbox-local`) and inserts this package's provider, which subclasses it: only the Copy-on-write *preset* is diverted, every other mode delegates to the stock ACL path. A configured `runnerCommand` cannot do this — it would apply to every mode.
+- The same layer merges `copy-on-write` into the `permission` preset list, keeping whatever the layers before it contributed.
+- Shell commands are then run through `bin/dsh-sbie-run.mjs`, a plain-Node child process that holds the Sandboxie FFI. Sandboxie builds processes through its service and drops the standard handles, so stdio is relayed over a loopback TCP channel with length-prefixed frames.
+- Box names are a deterministic word pair derived from the workspace path (`dsh_<adjective>_<noun>`), so no state file is needed to find a workspace's box; a collision steps to the next candidate, and a name is only adopted when Sandboxie's own configuration says that workspace owns it.
+- Only a failure to load the harness packages is fatal, and that case registers a provider that fails **closed** — refusing to run commands rather than running them unconfined.
+
+## Development
+
+See [AGENTS.md](AGENTS.md) for the architecture and the hard-won constraints. The short version:
+
+```powershell
+node test\unit.mjs               # pure logic
+node test\host-projection.mjs    # the title-bar projection, without the harness bundle
+node test\validate-patch.mjs     # this bundle's layer: structure, and the preset merge actually evaluated
+node test\run-tests.mjs          # acceptance: real boxes, real redirection (outside any box, medium IL)
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
