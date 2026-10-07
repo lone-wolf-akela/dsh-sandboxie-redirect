@@ -3,7 +3,7 @@
 Notable changes per release. The format is loose; the version numbers are what
 the DSH compatibility gate reads.
 
-## 0.3.0 — unreleased
+## 0.3.0 — 2026-10-07
 
 The distribution changed shape, so this is a breaking release for the earlier
 hand-mounted installations.
