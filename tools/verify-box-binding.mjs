@@ -19,7 +19,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginDir = path.dirname(here);
 const launcher = path.join(pluginDir, "bin", "dsh-sbie-run.mjs");
 const node = process.execPath;
-const workspace = process.argv[2] ?? "C:\\Users\\liuruoyang\\Documents\\deepseek-harness\\default-workspace";
+const workspace = process.argv[2] ?? process.cwd();
+if (process.argv[2] === undefined) {
+  console.log(`(no workspace argument: using the current directory; pass one explicitly to check another)`);
+}
 
 console.log(`config    : ${sandboxIniPath()}`);
 console.log(`workspace : ${workspace}`);

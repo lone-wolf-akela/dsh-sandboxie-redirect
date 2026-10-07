@@ -12,6 +12,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { boxNameFor, boxRoot } from "../lib/boxes.mjs";
@@ -24,7 +25,7 @@ const NODE = process.execPath;
 const WORKSPACE = process.env.DSH_SBIE_TEST_WORKSPACE ?? path.resolve(here, "..");
 const OTHER_WORKSPACE = path.join(WORKSPACE, "probe", "ws-other");
 /** A normal outside-workspace location with ordinary user rights. */
-const OUTSIDE = path.join(process.env.USERPROFILE ?? "C:\\Users\\liuruoyang", "dsh-sbie-outside");
+const OUTSIDE = path.join(process.env.USERPROFILE ?? os.homedir(), "dsh-sbie-outside");
 const BOX = boxNameFor(WORKSPACE, "workspace-write");
 const BOX_ROOT = boxRoot(BOX);
 

@@ -1,9 +1,11 @@
 // Offline reproduction of the chip's state machine, using the REAL projection
 // definition: does a state cleared by `sandbox_clear` re-derive the box on the
 // next committed event? (It should; the live chip did not come back.)
+//
+// usage: node probe/apply-recheck.mjs [workspace]     (default: the current directory)
 import * as host from "../lib/host.mjs";
 
-const WS = "C:\\Users\\liuruoyang\\Documents\\deepseek-harness\\default-workspace";
+const WS = process.argv[2] ?? process.cwd();
 let definition;
 await host.apply({
   effect: () => () => {},
