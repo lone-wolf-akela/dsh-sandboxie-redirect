@@ -147,21 +147,58 @@ check("the model note carries the operating rules an agent cannot infer", () => 
   for (const [pattern, why] of rules) assert.match(note, pattern, why);
 });
 
-check("node resolution prefers the env override, then the managed runtime", () => {
+check("node resolution: env override, then the shipped runtime, then the managed pool — never Electron", () => {
   const fake = "C:\\fake\\node.exe";
-  assert.equal(resolveNodePath({ env: { DSH_SBIE_NODE: fake }, exists: (p) => p === fake, execPath: "C:\\electron.exe" }), fake);
+  assert.equal(
+    resolveNodePath({ env: { DSH_SBIE_NODE: fake }, exists: (p) => p === fake, isElectron: true }),
+    fake,
+    "the explicit override wins"
+  );
+
+  // The desktop app's own Node: the install directory is user-chosen, so
+  // resourcesPath is the only handle on it.
+  const resources = "C:\\somewhere\\DeepSeek Harness\\resources";
+  const shipped = path.join(resources, "runtime", "primary-runtime", "dependencies", "node", "bin", "node.exe");
+  assert.equal(
+    resolveNodePath({ env: {}, resourcesPath: resources, homeDir: "C:\\no-such-home", isElectron: true, exists: (p) => p === shipped }),
+    shipped,
+    "the runtime shipped with the app is found through resourcesPath"
+  );
 
   const home = path.join(here, "fixture-home");
   const runtime = path.join(home, ".dsh", "dsh-runtimes", "dsh-primary-runtime", "dependencies", "node", "bin", "node.exe");
   fs.mkdirSync(path.dirname(runtime), { recursive: true });
   fs.writeFileSync(runtime, "");
   try {
-    assert.equal(resolveNodePath({ env: {}, homeDir: home, execPath: "C:\\electron.exe" }), runtime);
+    assert.equal(
+      resolveNodePath({ env: {}, homeDir: home, resourcesPath: "C:\\nope", isElectron: true, execPath: "C:\\electron.exe" }),
+      runtime,
+      "the managed runtime pool is the fallback"
+    );
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
 
-  assert.equal(resolveNodePath({ env: {}, homeDir: path.join(here, "no-such-home"), execPath: "C:\\electron.exe" }), "C:\\electron.exe");
+  // The case that used to be silent: an Electron host with no node anywhere.
+  assert.equal(
+    resolveNodePath({ env: {}, homeDir: path.join(here, "no-such-home"), resourcesPath: "C:\\nope", isElectron: true, execPath: "C:\\electron.exe" }),
+    null,
+    "no node at all must be null, NOT the Electron binary"
+  );
+
+  // A plain-Node host (source execution) IS a genuine node, so it is used.
+  assert.equal(
+    resolveNodePath({
+      env: {},
+      homeDir: path.join(here, "no-such-home"),
+      resourcesPath: "C:\\nope",
+      isElectron: false,
+      execPath: "C:\\node.exe",
+      exists: (p) => p === "C:\\node.exe"
+    }),
+    "C:\\node.exe",
+    "a non-Electron host may use its own interpreter"
+  );
 });
 
 check("the model note names the workspace and the copy, and warns about the file tools", () => {

@@ -29,6 +29,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginDir = path.dirname(here);
+// Diagnostic files must never land in a real user's state directory just
+// because a test ran; the plugin honours this override for exactly that.
+process.env.DSH_SBIE_LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-sbie-host-log-"));
 const hostSource = fs.readFileSync(path.join(pluginDir, "lib", "host.mjs"), "utf8");
 let passed = 0;
 
@@ -65,7 +68,8 @@ process.env.DSH_SBIE_INI = iniPath;
 /** Import the host half without touching the module cache or the bundle. */
 const loadable = hostSource
   .replace(/from\s+"\.\/naming\.mjs"/, `from ${JSON.stringify(pathToFileURL(path.join(pluginDir, "lib", "naming.mjs")).href)}`)
-  .replace(/from\s+"\.\/core\.mjs"/, `from ${JSON.stringify(pathToFileURL(path.join(pluginDir, "lib", "core.mjs")).href)}`);
+  .replace(/from\s+"\.\/core\.mjs"/, `from ${JSON.stringify(pathToFileURL(path.join(pluginDir, "lib", "core.mjs")).href)}`)
+  .replace(/from\s+"\.\/log\.mjs"/, `from ${JSON.stringify(pathToFileURL(path.join(pluginDir, "lib", "log.mjs")).href)}`);
 const hostModulePath = path.join(scratch, "host.mjs");
 fs.writeFileSync(hostModulePath, loadable, "utf8");
 const host = await import(pathToFileURL(hostModulePath).href);

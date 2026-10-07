@@ -1,26 +1,60 @@
 {
   "name": "dsh-sandboxie-redirect",
   "version": "0.2.1",
-  "private": true,
-  "description": "DSH sandbox runner and copy-on-write permission preset: workspace writes pass through, writes anywhere else are redirected into a per-workspace Sandboxie box.",
+  "description": "DSH bundle adding a copy-on-write permission preset: shell commands run inside a per-workspace Sandboxie box, so writes outside the workspace land in the box's copy while the real disk is untouched.",
   "type": "module",
-  "main": "lib/host.mjs",
+  "license": "MIT",
+  "os": [
+    "win32"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "lib/provider.mjs",
   "exports": {
     ".": {
-      "default": "./lib/host.mjs"
-    },
-    "./client": {
-      "default": "./lib/client.js"
+      "default": "./lib/provider.mjs"
     },
     "./provider": {
       "default": "./lib/provider.mjs"
     },
+    "./host": {
+      "default": "./lib/host.mjs"
+    },
     "./note": {
       "default": "./lib/note.mjs"
     },
+    "./client": {
+      "default": "./lib/client.js"
+    },
     "./package.json": "./package.json"
   },
+  "bin": {
+    "dsh-sbie-run": "./bin/dsh-sbie-run.mjs"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "deepseek-harness",
+    "sandboxie",
+    "sandbox",
+    "copy-on-write",
+    "permission-preset",
+    "windows"
+  ],
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-ui-conversation"
@@ -28,11 +62,7 @@
       "platform": "web"
     }
   },
-  "bin": {
-    "dsh-sbie-run": "./bin/dsh-sbie-run.mjs"
-  },
-  "license": "MIT",
-  "engines": {
-    "node": ">=20"
+  "devDependencies": {
+    "js-yaml": "^4.1.0"
   }
 }

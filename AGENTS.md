@@ -11,9 +11,11 @@
 | `lib/client.js` | 浏览器半边：标题栏沙箱名称；下拉与底部按钮的预设图标。 |
 | `lib/note.mjs` | 模型侧说明（`systemPrompt` 上下文），仅写时复制模式出现。文本在 `lib/redirect.mjs` 的 `redirectPolicyNote()`。 |
 | `lib/tool.mjs` + `lib/tool-schema.mjs` | `sandbox_clear` 工具与其输出 schema（含离线 DSL 校验 `valueSchemaViolations()`）。 |
+| `lib/log.mjs` | 诊断落点：`$DSH_HOME/state/dsh-sandboxie-redirect/`，可用 `DSH_SBIE_LOG_DIR` 覆盖。**绝不写进包目录**——bundle 装在 profile 的 `node_modules`（可能直接来自 pnpm store）里。 |
 | `lib/naming.mjs` / `boxes.mjs` / `sbie.mjs` / `koffi.mjs` / `core.mjs` / `redirect.mjs` | 命名、沙盒操作、Sandboxie FFI、核心包加载、重定向拼装。 |
+| `cordis.patch.yml` | 本包的 **bundle 层**（`dsh.bundle.patch`）：禁用 stock sandbox 行、复述四个预设、插入本包。行按**包名**引用，不含绝对路径。 |
 | `bin/dsh-sbie-run.mjs` | 启动器（纯 Node 进程，持有 Sandboxie FFI 与 `--manage`）。 |
-| `tools/install.mjs` / `verify-box-binding.mjs` / `inspect-copies.mjs` | 安装、绑定回归验证、副本清单。 |
+| `tools/install.mjs` / `verify-box-binding.mjs` / `inspect-copies.mjs` | **手工通道**（把工作区拷进 `~/.dsh/plugins`）的安装/校验/清单工具，面向维护者；公开用户走 `dsh plugin add`。 |
 | `test/*` | 单元 / 投影 / 补丁结构 / 验收 / soak。 |
 
 ## 接入方式与平台事实
@@ -22,8 +24,16 @@
 - **patch 词汇**：非 `insert` 补丁里 `name` 是**守卫**不是重指向——`applyEntryPatches` 只保留 `id` 与其余字段，`name` 与目标不符就整条跳过。所以不能用"改名"换 provider，只能"禁用原行 + 新增 insert 行"。
 - **为什么是"预设"而不是第四个模式字面量**：三个模式字面量硬编码在四个核心包里——`dsh-sandbox-policy`（`SANDBOX_MODES` 与 `sandboxMode` 投影 schema）、`dsh-permission-presets`（preset 的 `sandbox` 校验与目录）、`dsh-client-ui-permission-presets`（只对三个已知值给内置图标/文案）、`dsh-sandbox`（`WIDER_MODES`/`writableRoots`）。其中 `SANDBOX_MODES` 在模块求值时被按值读入，`writableRoots` 又被文件围栏直接 import，所以"加第四个枚举值"必须改 asar 或替换多个插件行。改用预设身份区分，这些全都不用动。代价：拒绝文案仍写 "workspace-write"（对文件工具而言确实如此），属文案一致、非行为不一致。
 - **客户端半边不是 ES module**：`window.__ModuleLoader__.load({ id, factory: (require) => … })`，用 CJS 风格 `require("react")`；`id` 必须等于包名。发现方式为 `package.json` 的 `dsh.client`（`platform: "web"` + `inject`）与 `exports["./client"]`。
-- **客户端改动与插件代码改动都只能靠重启客户端生效**：DSH 是 Electron 应用，没有"刷新页面"语义。
+- **客户端改动与插件代码改动**：profile 是 **live** 的——改 `cordis.patch.yml` 后宿主会在数秒内重新合成并加载（实测：写入补丁 2 秒后 `provider.log` 出现 `provider constructed`，`sandbox` 行转为 `inactive`，浏览器半边的 slot 占用者也在同一次重载后出现）。但 `lib/*.mjs` **代码**改动不会被重新求值，仍需重启客户端。副作用：`tools/install.mjs` 的 `rm`+`cp` 序列在 live 宿主下不是原子的，宿主可能在复制途中加载到半个包。
 - **核心包只能经 `core.mjs` 的 `importCore(specifier)` 加载**（`createRequire` 锚定 `app.asar/dsh/node_modules` 再 `import(fileURL)`）；路径挂载插件里的裸 specifier 不解析。
+
+## 分发包形态（bundle）
+
+- 包声明 `dsh.bundle.patch: "./cordis.patch.yml"`，`files` **必须包含**该文件；`exports["."]` **必须**指向 `lib/provider.mjs`——bundle 行按包名插入，行名解析到的就是包的入口（历史上 `main` 指向 `lib/host.mjs`，那样 bundle 行会挂到错误的半边，沙箱 provider 根本不生效）。
+- 用户安装：`dsh plugin --profile <name> add dsh-sandboxie-redirect`（也支持 `./目录`、`pnpm pack` 出的 tarball、`github:user/repo`）。`dsh plugin` 把包追加进 profile 的 `dsh.profile.bundles`，**不需要**手改 profile 文件。
+- 开发回路：`dsh plugin --profile dev add ./` 会把当前 checkout link 进 profile；改 `lib/*.mjs` 后重启客户端即可，不必反复手工拷贝。
+- **手工通道**（`~/.dsh/plugins/…` + 绝对路径行）仍被 `test/validate-patch.mjs` 支持（它从 path 行反推包目录，所以两种形态都能校验），但不再是公开安装路径；旧的 `cordis.patch.yml.new` 模板已删除。
+- 层顺序：bundle 层（按 `dsh.profile.bundles` 顺序）→ profile 自己的 `cordis.patch.yml` → `$DSH_HOME/cordis.patch.yml` → `--patch`。越靠后越优先；patch **整行替换** `config`，不深合并——这正是本包必须复述四个预设的原因。
 
 ## 硬规则（违反会静默失败或造成破坏）
 
@@ -32,7 +42,8 @@
 3. **模块顶层只 import Node 内置模块。** 原生模块（koffi）在 Electron 宿主里加载失败会让整行在求值阶段就静默失败，连日志都写不出。原生工作交给纯 Node 子进程（启动器）。
 4. **`defineTool` 的 `output.schema` 是 value schema DSL**：`required` 只能出现在 `properties` 映射的直接子节点上；根、`items`、`oneOf` 分支都不允许。`parameters` 是 parameter DSL，`required: true` 写在属性上。离线校验在 `tool-schema.mjs`，`test/validate-patch.mjs` 带反向对照。
 5. **安装 / 校验插件文件必须在沙盒外。** 写时复制下，工作区外的写入会被重定向进副本、盒内读是合并视图，于是"报成功 + 读回确认"都可能发生在副本上，真实磁盘一字未变。`tools/install.mjs` 检测 `DSH_SBIE_BOX` 即拒绝，并在盒外逐文件比对 sha256。
-6. **诊断写文件，不写 stderr。** 宿主 stderr 事后不可读。provider / host / tool 各自写 `*.log`（`host.log` 有 512 KB 上限，只记状态迁移与 view 变化）。日志里不要写死常量（版本号曾写死字符串，误导排查）。
+6. **诊断写文件，不写 stderr。** 宿主 stderr 事后不可读。provider / host / tool 各写 `*.log` 到 `$DSH_HOME/state/dsh-sandboxie-redirect/`（`DSH_SBIE_LOG_DIR` 可覆盖；`host.log` 有 512 KB 上限，只记状态迁移与 view 变化）。**不要写进包目录**：bundle 装在 profile 的 `node_modules`，还可能是 pnpm store 的内容寻址副本，往那里追加文件既污染安装树也可能直接失败。日志里不要写死常量（版本号曾写死字符串，误导排查）。
+7. **跑启动器必须用真正的 node，找不到就响亮失败。** `process.execPath` 在 Electron 宿主里是 Electron 二进制，拿它跑启动器会把原生 koffi 工作塞回 Electron 进程。`lib/redirect.mjs` 的 `resolveNodePath()` 候选顺序：`DSH_SBIE_NODE` → `<resources>/runtime/primary-runtime/dependencies/node/bin/node.exe`（安装目录由用户决定，`process.resourcesPath` 是唯一可靠入口）→ `$DSH_HOME/dsh-runtimes/*/dependencies/node/bin/node.exe`（本版本**按需**创建，新机器上首次可能不存在），并且只在**非 Electron** 宿主才接受 `process.execPath`。全都找不到时返回 `null`，`confine()` 抛 `SANDBOX_UNAVAILABLE` —— 曾经的"回退到 `process.execPath`"是把失败推到盒内，事后无法归因。
 
 ## 已知问题与规避
 
@@ -56,11 +67,14 @@
 ## 测试
 
 ```powershell
-node test\run-tests.mjs      # 验收
-node test\soak.mjs 30        # 稳定性/延迟
-node test\unit.mjs           # 单元
+node test\run-tests.mjs                       # 验收
+node test\soak.mjs 30                          # 稳定性/延迟
+node test\unit.mjs                             # 单元
 node test\host-projection.mjs
-node test\validate-patch.mjs cordis.patch.yml.new
+node test\validate-patch.mjs                   # 默认校验本仓库的 cordis.patch.yml（bundle 层）
+node test\validate-patch.mjs <某个 patch.yml>   # 也可校验 profile 补丁 / 手工通道
 ```
 
-验收与 soak 必须在沙盒外、普通用户令牌（Medium IL）下运行；在 DSH 的 Low IL 沙盒里跑无意义。
+`validate-patch.mjs` 需要 js-yaml（harness 自己用的解析器），按顺序在 `node_modules`（devDependency）、`asar-yaml/`（本地从 `app.asar` 提取的副本）、`$DSH_HOME/profiles/node_modules` 里找，或用 `DSH_YAML` 指定。它同时支持两种行形态：bundle 层的**包名**行，以及手工通道的**绝对路径**行（后者会从行反推包目录，因此校验的是实际挂载的那份代码）。
+
+验收与 soak 必须在沙盒外、普通用户令牌（Medium IL）下运行；在 DSH 的 Low IL 沙盒里跑无意义。测试会把 `DSH_SBIE_LOG_DIR` 指到临时目录，避免污染真实用户的 `$DSH_HOME/state`。

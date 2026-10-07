@@ -1,36 +1,80 @@
 // Validate the profile patch with the same YAML implementation the harness
 // bundles, plus the structural expectations the permission/sandbox rows have.
-// usage: node validate-patch.mjs <patch.yml>
+// usage: node validate-patch.mjs [patch.yml]      (default: this bundle's own)
 //
-// The parser is the harness's own js-yaml, extracted from app.asar by
-// ../extract-asar-any.mjs (the harness reads it from inside the asar at
-// runtime; plain Node cannot). It is looked up next to the workspace rather
-// than vendored into the plugin.
+// The parser must be js-yaml, the implementation the harness itself parses
+// layers with (its `yaml` dependency has a different API). It is looked up in
+// three places, in this order: the devDependency of this repository, a copy
+// extracted next to the workspace, and the copy inside an installed DSH profile
+// — so the check runs on a fresh clone and on a user machine alike.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const repoDir = path.resolve(here, "..");
+const manifest = JSON.parse(fs.readFileSync(path.join(repoDir, "package.json"), "utf8"));
+
+/**
+ * Module-level imports that could throw inside the Electron host: anything that
+ * is not a Node builtin, plus any relative sibling that transitively is not
+ * builtins-only either.
+ *
+ * This is the pin that cost the most to learn. An earlier `tool.mjs` imported
+ * `boxes.mjs` at module level, which loads koffi — a native module that fails
+ * to load in the Electron host. The failure happened before any of the file's
+ * own code could run, so the row simply never registered: no tool, no error.
+ * Relative siblings are allowed now, but only while they keep the same rule.
+ */
+function moduleLevelViolations(file, seen = new Set()) {
+  if (seen.has(file)) return [];
+  seen.add(file);
+  let source;
+  try {
+    source = fs.readFileSync(file, "utf8");
+  } catch {
+    return [`${path.relative(repoDir, file)} (unreadable)`];
+  }
+  const violations = [];
+  for (const match of source.matchAll(/^import\s[^;]*?from\s+"([^"]+)"/gm)) {
+    const specifier = match[1];
+    if (specifier.startsWith("node:")) continue;
+    if (specifier.startsWith(".")) {
+      const target = path.resolve(path.dirname(file), specifier);
+      if (!fs.existsSync(target)) violations.push(`${specifier} (missing)`);
+      else violations.push(...moduleLevelViolations(target, seen));
+      continue;
+    }
+    violations.push(specifier);
+  }
+  return violations;
+}
 
 async function loadYaml() {
+  const home = process.env.DSH_HOME ?? path.join(os.homedir(), ".dsh");
   const candidates = [
-    path.resolve(here, "..", "asar-yaml", "js-yaml", "dist", "js-yaml.mjs"),
-    path.resolve(here, "..", "..", "asar-yaml", "js-yaml", "dist", "js-yaml.mjs")
-  ];
+    process.env.DSH_YAML,
+    path.join(repoDir, "node_modules", "js-yaml", "dist", "js-yaml.mjs"),
+    path.join(repoDir, "asar-yaml", "js-yaml", "dist", "js-yaml.mjs"),
+    path.resolve(repoDir, "..", "asar-yaml", "js-yaml", "dist", "js-yaml.mjs"),
+    path.join(home, "profiles", "node_modules", "js-yaml", "dist", "js-yaml.mjs")
+  ].filter((candidate) => typeof candidate === "string" && candidate.length > 0);
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return (await import(pathToFileURL(candidate).href)).default;
   }
   console.error([
     "js-yaml was not found for this check.",
-    "Extract it from the harness bundle first:",
-    "  node extract-asar-any.mjs 'dsh\\/node_modules\\/(yaml\\/dist|js-yaml\\/dist)\\/[^/]*\\.(js|mjs|cjs)$' asar-yaml",
+    "Install the dev dependencies (`pnpm install`) or point DSH_YAML at a copy:",
+    "  DSH_YAML=/path/to/js-yaml/dist/js-yaml.mjs node test/validate-patch.mjs",
     `looked in:\n  ${candidates.join("\n  ")}`
   ].join("\n"));
   process.exit(2);
 }
 const yaml = await loadYaml();
 
-const file = process.argv[2] ?? "C:\\Users\\liuruoyang\\.dsh\\profiles\\desktop\\cordis.patch.yml";
+const file = process.argv[2] ?? path.join(repoDir, "cordis.patch.yml");
+console.log(`patch file: ${file}`);
 const text = fs.readFileSync(file, "utf8");
 
 // The harness patches may use `!!js` expressions; accept them as raw strings.
@@ -81,13 +125,41 @@ if (sandbox) {
 }
 
 // --- the provider must be its own INSERTED row ----------------------------
-const providerRow = entries.flatMap((e) => e?.insert ?? []).find((e) => typeof e?.name === "string" && e.name.endsWith("provider.mjs"));
-need(providerRow !== undefined, "the copy-on-write provider must be an inserted row of its own");
+//
+// Two shapes are legitimate and both are accepted here. The BUNDLE layer names
+// the package (`dsh-sandboxie-redirect`), and Node resolution finds the
+// installed code through the profile's package graph. A local `--patch` overlay
+// names the provider FILE instead, because the loader resolves overlay paths
+// relative to the profile directory. The directory whose sources get checked
+// below follows from the shape.
+const isPathLike = (name) => path.isAbsolute(name) || name.startsWith("./") || name.startsWith("../");
+const providerRow = entries
+  .flatMap((e) => e?.insert ?? [])
+  .find((e) => typeof e?.name === "string" && (
+    e.name === manifest.name ||
+    e.name === `${manifest.name}/provider` ||
+    (isPathLike(e.name) && fs.existsSync(e.name))
+  ));
+need(providerRow !== undefined, "the copy-on-write provider must be an inserted row of its own naming this package");
+/** The tree the mounting row resolves to: the checkout, or the installed copy a path row points at. */
+let packageDir = repoDir;
 if (providerRow) {
   console.log(`provider row = ${providerRow.id} -> ${providerRow.name}`);
   need(typeof providerRow.id === "string" && providerRow.id.length > 0, "the inserted provider row needs its own id");
   need(providerRow.id !== "sandbox", "the inserted provider must NOT reuse the stock `sandbox` id");
-  need(fs.existsSync(providerRow.name), `provider row target does not exist: ${providerRow.name}`);
+  if (isPathLike(providerRow.name)) {
+    need(providerRow.name.endsWith("provider.mjs"), `a path row must name the provider entry, got ${providerRow.name}`);
+    packageDir = path.resolve(path.dirname(providerRow.name), "..");
+  } else {
+    // A package row loads the package's own entry point, so that entry point has
+    // to BE the provider. It used to be host.mjs, and a bundle row would then
+    // have mounted the wrong half — with the sandbox provider missing entirely.
+    const mainEntry = manifest.exports?.["."]?.default ?? manifest.main ?? "";
+    need(
+      path.basename(mainEntry) === "provider.mjs",
+      `a package row loads the package's main export, so it must be the provider (got ${mainEntry})`
+    );
+  }
 }
 
 // --- the permission row: four presets, originals restated, order preserved ---
@@ -130,19 +202,19 @@ if (permission) {
 // hence a pin, not a convention: every row (config and insert) that points into
 // this plugin's directory must be the same single entry.
 const inserted = entries.filter((e) => e?.insert).flatMap((e) => e.insert);
-// The rows point at the INSTALLED copy (`install.mjs` guarantees it is identical
-// to this working copy), so the package directory is derived from a row rather
-// than from this script's own location — otherwise the two never match and the
-// count below is meaningless.
-const providerRowForDir = inserted.find((e) => typeof e?.name === "string" && e.name.endsWith("provider.mjs")) ?? entries.find((e) => typeof e?.name === "string" && e.name.includes("dsh-sandboxie-redirect"));
-const packageDir = providerRowForDir === undefined ? path.resolve(here, "..") : path.resolve(path.dirname(providerRowForDir.name), "..");
+/** Whether a row name refers to this plugin — by package name, or by path into the mounted tree. */
+const namesThisPackage = (rowName) => {
+  if (typeof rowName !== "string") return false;
+  if (isPathLike(rowName)) return path.resolve(rowName).startsWith(packageDir + path.sep);
+  return rowName === manifest.name || rowName.startsWith(`${manifest.name}/`);
+};
 // Imported, not read as text: the value-schema mirror has to be RUN against the
 // installed schema, which is the schema that will actually be compiled at boot.
 const installedToolSchema = await import(pathToFileURL(path.join(packageDir, "lib", "tool-schema.mjs")).href);
 const valueViolations = installedToolSchema.valueSchemaViolations;
 const rowsIntoPackage = [...entries, ...inserted]
   .map((entry) => entry?.name)
-  .filter((rowName) => typeof rowName === "string" && path.resolve(rowName).startsWith(packageDir + path.sep));
+  .filter(namesThisPackage);
 console.log(`rows into this package: ${rowsIntoPackage.length}`);
 for (const rowName of rowsIntoPackage) console.log(`  ${rowName}`);
 need(
@@ -195,11 +267,10 @@ const toolSource = fs.readFileSync(toolPath, "utf8");
   // module-level failure happens before any of the file's own code can log. So
   // the module level may import Node builtins ONLY, and the native work must go
   // to a child process running the launcher under the managed Node runtime.
-  const staticImports = [...toolSource.matchAll(/^import\s[^;]*?from\s+"([^"]+)"/gm)].map((match) => match[1]);
-  const nonBuiltin = staticImports.filter((specifier) => !specifier.startsWith("node:"));
+  const moduleLevel = moduleLevelViolations(toolPath);
   need(
-    nonBuiltin.length === 0,
-    `the tool's module level must import Node builtins only (found ${nonBuiltin.join(", ")}): a native or plugin import that throws there kills the row before it can log`
+    moduleLevel.length === 0,
+    `the tool's module level must reach Node builtins only (found ${moduleLevel.join(", ")}): an import that throws there kills the row before it can log`
   );
   need(
     !/from\s+"\.\/(boxes|sbie|koffi)\.mjs"/.test(toolSource) && !/\bkoffi\b/.test(toolSource.replace(/^[\s\S]*?\/\*\*[\s\S]*?\*\//, "")),
