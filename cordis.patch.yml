@@ -14,10 +14,13 @@
 #     provider row therefore cannot be re-pointed in place — it is DISABLED
 #     here, and ours is inserted as its own row.
 #
-#   * A patch replaces a row's entire `config` (no deep merge), so the stock
-#     presets are restated verbatim, in their original order, with
-#     `copy-on-write` placed AFTER workspace-write so fresh sessions keep
-#     defaulting to workspace-write.
+#   * A patch replaces a row's entire `config` (no deep merge). Restating the
+#     stock presets as literals would therefore silently DISCARD any preset a
+#     later DSH version or another bundle contributes. So `presets` is computed:
+#     it reads whatever the layers before this one composed and merges ours in,
+#     falling back to the literal stock three when that composition cannot be
+#     read. The failure mode is the old behaviour — never a preset directory
+#     that is missing the shipped presets.
 #
 # The plugin's own README documents what the preset does; the reasoning behind
 # this file's shape lives in AGENTS.md.
@@ -32,30 +35,39 @@
 - id: permission
   name: "@deepseek-ai/dsh-permission-presets"
   config:
-    presets:
-      read-only:
-        sandbox: read-only
-        approval: ask
-      workspace-write:
-        sandbox: workspace-write
-        approval: ask
-      copy-on-write:
-        # The preset deliberately bundles the legal `workspace-write` mode: the
-        # PRESET identity is what selects the redirect, so the session
-        # projection schema, SANDBOX_MODES, the file fence and the escalation
-        # tables all stay untouched.
-        sandbox: workspace-write
-        approval: ask
-        # The leading glyph is deliberate and load-bearing: the shipped dropdown
-        # takes its icons from a CLOSED id->icon map, so a custom preset renders
-        # with none, and the label span is not a stable handle for a DOM shim.
-        # The display name is host config rendered verbatim in every surface, so
-        # the glyph belongs here, and swapping it is a one-line edit.
-        name: '❐ 写时复制'
-        description: '工作区照旧写穿真盘；工作区外的写入、修改、删除不会失败，改落到本工作区的 Sandboxie 副本里（可在 SandMan 查看、恢复或丢弃）。'
-      danger-full-access:
-        sandbox: danger-full-access
-        approval: never
+    # The leading glyph in the display name is deliberate and load-bearing: the
+    # shipped dropdown takes its icons from a CLOSED id->icon map, so a custom
+    # preset renders with none, and the label span is not a stable handle for a
+    # DOM shim (its shape changes when the row is selected). The name is host
+    # config rendered verbatim in every surface, so the glyph belongs here.
+    # The preset also deliberately bundles the LEGAL `workspace-write` mode: the
+    # preset identity is what selects the redirect, so the session projection
+    # schema, SANDBOX_MODES, the file fence and the escalation tables all stay
+    # untouched.
+    presets: !!js >-
+      (() => {
+      const copyOnWrite = {
+      sandbox: "workspace-write",
+      approval: "ask",
+      name: "❐ Copy-on-write 写时复制",
+      description: "Writes inside the workspace go to the real disk; writes, edits and deletes anywhere else still succeed but land in this workspace's Sandboxie copy, which SandMan can inspect, recover or discard. 工作区内的写入照旧落到真实磁盘；工作区外的写入、修改、删除不会失败，改落到本工作区的 Sandboxie 副本里。"
+      };
+      const stock = {
+      "read-only": { sandbox: "read-only", approval: "ask" },
+      "workspace-write": { sandbox: "workspace-write", approval: "ask" },
+      "danger-full-access": { sandbox: "danger-full-access", approval: "never" }
+      };
+      let base;
+      try {
+      base = [...ctx.loader.entries()].find((entry) => entry.options?.id === "permission")?.options?.config?.presets;
+      } catch {}
+      const usable = base !== undefined && base !== null && ["read-only", "workspace-write", "danger-full-access"].every((key) => base[key] !== undefined);
+      const source = usable ? base : stock;
+      const keys = Object.keys(source).filter((key) => key !== "copy-on-write");
+      const after = keys.indexOf("workspace-write");
+      keys.splice(after === -1 ? keys.length : after + 1, 0, "copy-on-write");
+      return Object.fromEntries(keys.map((key) => [key, key === "copy-on-write" ? copyOnWrite : source[key]]));
+      })()
 
 # ONE row into this package, and that is a hard requirement: the client-modules
 # registry composes a `dsh.client` package only while exactly ONE of its loader

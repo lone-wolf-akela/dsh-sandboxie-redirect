@@ -162,14 +162,36 @@ if (providerRow) {
   }
 }
 
-// --- the permission row: four presets, originals restated, order preserved ---
+// --- the permission row: the fourth preset, merged, order preserved ---------
 const permission = entries.find((e) => e?.id === "permission");
 need(permission !== undefined, "missing `permission` row (the fourth preset would not appear)");
 let presetName;
 if (permission) {
-  const presets = permission.config?.presets ?? {};
+  const declared = permission.config?.presets;
+  const STOCK = {
+    "read-only": { sandbox: "read-only", approval: "ask" },
+    "workspace-write": { sandbox: "workspace-write", approval: "ask" },
+    "danger-full-access": { sandbox: "danger-full-access", approval: "never" }
+  };
+  /**
+   * Evaluate a computed `presets` value the way the loader will: as an
+   * expression with a `ctx` in scope. `base` is what the earlier layers
+   * composed, which the expression reads through `ctx.loader.entries()`.
+   *
+   * Running the expression (rather than only checking that it parses) is the
+   * point: the merge is the one place where this plugin's configuration depends
+   * on the host's runtime, and a silent mistake there removes the SHIPPED
+   * presets from the picker.
+   */
+  const evaluatePresets = (expression, base) => {
+    const rows = base === undefined ? [] : [{ options: { id: "permission", config: { presets: base } } }];
+    const ctx = { loader: { entries: () => rows } };
+    return new Function("ctx", `return (${expression});`)(ctx);
+  };
+  const computed = declared !== null && typeof declared === "object" && typeof declared.__js === "string";
+  const presets = computed ? evaluatePresets(declared.__js, undefined) : (declared ?? {});
   const names = Object.keys(presets);
-  console.log(`presets (declaration order): ${names.join(", ")}`);
+  console.log(`presets (${computed ? "computed, earlier layers unreadable" : "declared"}; order): ${names.join(", ")}`);
   presetName = presets["copy-on-write"]?.name;
   console.log(`copy-on-write name        = ${JSON.stringify(presetName)}`);
   need(names.length === 4, `expected 4 presets, found ${names.length}`);
@@ -189,6 +211,23 @@ if (permission) {
   need(typeof presets["copy-on-write"]?.name === "string" && presets["copy-on-write"].name.length > 0, "copy-on-write needs a display name");
   for (const key of ["read-only", "workspace-write", "danger-full-access"]) {
     need(presets[key]?.name === undefined, `${key} must NOT carry a name, or the client loses its localized label`);
+  }
+  if (computed) {
+    // The reason the value is computed at all: a preset another bundle (or a
+    // newer DSH) contributes must survive, and ours must still sit right after
+    // workspace-write without touching the rest.
+    const extra = { ...STOCK, "added-by-another-bundle": { sandbox: "workspace-write", approval: "ask" } };
+    const merged = evaluatePresets(declared.__js, extra);
+    const mergedNames = Object.keys(merged);
+    need(mergedNames.includes("added-by-another-bundle"), "a computed preset list must KEEP presets contributed by earlier layers");
+    need(
+      mergedNames.indexOf("copy-on-write") === mergedNames.indexOf("workspace-write") + 1,
+      "…and still place copy-on-write immediately after workspace-write"
+    );
+    need(
+      merged["read-only"]?.sandbox === "read-only" && merged["read-only"]?.approval === "ask" && merged["danger-full-access"]?.approval === "never",
+      "…and leave the earlier layers' entries untouched"
+    );
   }
 }
 

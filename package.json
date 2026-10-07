@@ -4,6 +4,15 @@
   "description": "DSH bundle adding a copy-on-write permission preset: shell commands run inside a per-workspace Sandboxie box, so writes outside the workspace land in the box's copy while the real disk is untouched.",
   "type": "module",
   "license": "MIT",
+  "author": "lone-wolf-akela",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lone-wolf-akela/dsh-sandboxie-redirect.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lone-wolf-akela/dsh-sandboxie-redirect/issues"
+  },
+  "homepage": "https://github.com/lone-wolf-akela/dsh-sandboxie-redirect#readme",
   "os": [
     "win32"
   ],
@@ -61,6 +70,12 @@
       ],
       "platform": "web"
     }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-sandbox-local": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.2.0-rc.2"
   },
   "devDependencies": {
     "js-yaml": "^4.1.0"

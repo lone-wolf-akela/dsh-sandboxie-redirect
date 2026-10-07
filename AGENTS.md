@@ -13,7 +13,7 @@
 | `lib/tool.mjs` + `lib/tool-schema.mjs` | `sandbox_clear` 工具与其输出 schema（含离线 DSL 校验 `valueSchemaViolations()`）。 |
 | `lib/log.mjs` | 诊断落点：`$DSH_HOME/state/dsh-sandboxie-redirect/`，可用 `DSH_SBIE_LOG_DIR` 覆盖。**绝不写进包目录**——bundle 装在 profile 的 `node_modules`（可能直接来自 pnpm store）里。 |
 | `lib/naming.mjs` / `boxes.mjs` / `sbie.mjs` / `koffi.mjs` / `core.mjs` / `redirect.mjs` | 命名、沙盒操作、Sandboxie FFI、核心包加载、重定向拼装。 |
-| `cordis.patch.yml` | 本包的 **bundle 层**（`dsh.bundle.patch`）：禁用 stock sandbox 行、复述四个预设、插入本包。行按**包名**引用，不含绝对路径。 |
+| `cordis.patch.yml` | 本包的 **bundle 层**（`dsh.bundle.patch`）：禁用 stock sandbox 行、把 `copy-on-write` 合并进 `permission` 行的预设目录、插入本包。行按**包名**引用，不含绝对路径。 |
 | `bin/dsh-sbie-run.mjs` | 启动器（纯 Node 进程，持有 Sandboxie FFI 与 `--manage`）。 |
 | `tools/install.mjs` / `verify-box-binding.mjs` / `inspect-copies.mjs` | **手工通道**（把工作区拷进 `~/.dsh/plugins`）的安装/校验/清单工具，面向维护者；公开用户走 `dsh plugin add`。 |
 | `test/*` | 单元 / 投影 / 补丁结构 / 验收 / soak。 |
@@ -33,7 +33,9 @@
 - 用户安装：`dsh plugin --profile <name> add dsh-sandboxie-redirect`（也支持 `./目录`、`pnpm pack` 出的 tarball、`github:user/repo`）。`dsh plugin` 把包追加进 profile 的 `dsh.profile.bundles`，**不需要**手改 profile 文件。
 - 开发回路：`dsh plugin --profile dev add ./` 会把当前 checkout link 进 profile；改 `lib/*.mjs` 后重启客户端即可，不必反复手工拷贝。
 - **手工通道**（`~/.dsh/plugins/…` + 绝对路径行）仍被 `test/validate-patch.mjs` 支持（它从 path 行反推包目录，所以两种形态都能校验），但不再是公开安装路径；旧的 `cordis.patch.yml.new` 模板已删除。
-- 层顺序：bundle 层（按 `dsh.profile.bundles` 顺序）→ profile 自己的 `cordis.patch.yml` → `$DSH_HOME/cordis.patch.yml` → `--patch`。越靠后越优先；patch **整行替换** `config`，不深合并——这正是本包必须复述四个预设的原因。
+- 层顺序：bundle 层（按 `dsh.profile.bundles` 顺序）→ profile 自己的 `cordis.patch.yml` → `$DSH_HOME/cordis.patch.yml` → `--patch`。越靠后越优先；patch **整行替换** `config`，不深合并——所以任何要"改一行里的一部分"的补丁都必须把整行交出来，本包因此用 `!!js` 交出算好的整份预设目录（见下条）。
+- **`permission.config.presets` 是算出来的，不是字面量**：`!!js` 表达式读 `ctx.loader.entries()` 里已合成的 `permission` 行再合并。整行替换语义下，字面量会把上游或其它 bundle 新增的预设静默删掉。表达式读不到就回退到字面量的 stock 三个——失败方向永远是"旧行为"，绝不会是"预设目录少了自带预设"。`test/validate-patch.mjs` 会**真的执行**这段表达式（stub ctx），并断言"另一层新增的预设被保留、`copy-on-write` 紧随 workspace-write、其余条目未被改动"。
+- **`peerDependencies` 按宿主内置版本写**：本机实测宿主为 `@deepseek-ai/dsh-* 0.2.0-rc.2`、`@deepseek-ai/cordis 4.0.4`（而 npm 上 profile 装到的是 `0.1.1-rc.2`）。官方建议把这些包同时写进 `devDependencies`，这里**故意不写**：宿主版本没发布在 npm 上，装不进开发树；而且本插件的测试刻意不依赖 harness 包（host 半边靠改写 import 加载），所以 devDependencies 只有 `js-yaml`。预发布 semver 的元组极敏感——宿主换到 `0.2.1-rc.x` 这类新元组时 `^0.2.0-rc.2` 不再匹配，用户会看到 incompatible 警告与 `dsh plugin allow-version` 豁免提示，所以每次跟随 DSH 版本都要重新实测闸门判定。
 
 ## 硬规则（违反会静默失败或造成破坏）
 
