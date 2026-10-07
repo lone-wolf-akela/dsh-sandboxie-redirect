@@ -12,10 +12,14 @@ jobs:
   test:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # v5 of both actions, not v4: v4 targets Node 20, which the runners now
+      # force onto Node 24 and report as deprecated on every run.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          # The Node the desktop app actually ships, so the tests run against the
+          # runtime the plugin will meet (it is plain ESM; `engines` stays >= 20).
+          node-version: "24"
       # The only devDependency is js-yaml, which test/validate-patch.mjs parses
       # the layer with. Any package manager works; this one needs no setup step.
       - run: npm install --no-audit --no-fund
