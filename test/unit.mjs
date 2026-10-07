@@ -226,9 +226,20 @@ check("the plugin ships the files the profile rows point at", () => {
     assert.ok(fs.existsSync(path.join(pluginDir, rel)), `missing ${rel}`);
   }
   const manifest = JSON.parse(fs.readFileSync(path.join(pluginDir, "package.json"), "utf8"));
-  assert.equal(manifest.name, "dsh-sandboxie-redirect");
+  assert.equal(manifest.name, "@lone-wolf-akela/dsh-sandboxie-redirect");
   assert.equal(manifest.dsh?.client?.platform, "web");
   assert.equal(manifest.exports?.["./client"]?.default, "./lib/client.js");
+  // The module-loader id and the bundle row are both the package name, so the
+  // three cannot drift apart silently.
+  const clientSource = fs.readFileSync(path.join(pluginDir, "lib", "client.js"), "utf8");
+  assert.ok(
+    clientSource.includes(`id: ${JSON.stringify(manifest.name)}`),
+    "the client half's ModuleLoader id must be the package name"
+  );
+  assert.ok(
+    fs.readFileSync(path.join(pluginDir, "cordis.patch.yml"), "utf8").includes(`name: ${JSON.stringify(manifest.name)}`),
+    "the bundle row must name the package"
+  );
 });
 
 console.log(`\n${passed} checks passed${process.exitCode ? " (with failures)" : ""}`);

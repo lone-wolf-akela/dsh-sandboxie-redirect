@@ -30,7 +30,8 @@
 ## 分发包形态（bundle）
 
 - 包声明 `dsh.bundle.patch: "./cordis.patch.yml"`，`files` **必须包含**该文件；`exports["."]` **必须**指向 `lib/provider.mjs`——bundle 行按包名插入，行名解析到的就是包的入口（历史上 `main` 指向 `lib/host.mjs`，那样 bundle 行会挂到错误的半边，沙箱 provider 根本不生效）。
-- 用户安装：`dsh plugin --profile <name> add dsh-sandboxie-redirect`（也支持 `./目录`、`pnpm pack` 出的 tarball、`github:user/repo`）。`dsh plugin` 把包追加进 profile 的 `dsh.profile.bundles`，**不需要**手改 profile 文件。
+- 用户安装：`dsh plugin --profile <name> add @lone-wolf-akela/dsh-sandboxie-redirect`（也支持 `./目录`、`pnpm pack` 出的 tarball、`github:user/repo`）。`dsh plugin` 把包追加进 profile 的 `dsh.profile.bundles`，**不需要**手改 profile 文件。包名带 scope，所以 `publishConfig.access: "public"` 是必需的——带 scope 的包默认 private。
+- **包名出现在三个必须一致的地方**：`package.json` 的 `name`、`cordis.patch.yml` 插入行的 `name`、`lib/client.js` 里 `window.__ModuleLoader__.load({ id })` 的 id。改名前先看 `test/unit.mjs` 的对应断言。
 - 开发回路：`dsh plugin --profile dev add ./` 会把当前 checkout link 进 profile；改 `lib/*.mjs` 后重启客户端即可，不必反复手工拷贝。
 - **手工通道**（`~/.dsh/plugins/…` + 绝对路径行）仍被 `test/validate-patch.mjs` 支持（它从 path 行反推包目录，所以两种形态都能校验），但不再是公开安装路径；旧的 `cordis.patch.yml.new` 模板已删除。
 - 层顺序：bundle 层（按 `dsh.profile.bundles` 顺序）→ profile 自己的 `cordis.patch.yml` → `$DSH_HOME/cordis.patch.yml` → `--patch`。越靠后越优先；patch **整行替换** `config`，不深合并——所以任何要"改一行里的一部分"的补丁都必须把整行交出来，本包因此用 `!!js` 交出算好的整份预设目录（见下条）。

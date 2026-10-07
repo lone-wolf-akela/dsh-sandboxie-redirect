@@ -1,6 +1,6 @@
 # dsh-sandboxie-redirect — the bundle layer.
 #
-# `dsh plugin --profile <name> add dsh-sandboxie-redirect` appends this package
+# `dsh plugin --profile <name> add @lone-wolf-akela/dsh-sandboxie-redirect` appends this package
 # to the profile's `dsh.profile.bundles`; the next profile boot applies THIS
 # layer. Rows reference the package by NAME, not by path: Node resolution finds
 # the installed code through the profile's package graph, so the same file works
@@ -76,4 +76,4 @@
 # row's constructor (see wireCompanions() in lib/provider.mjs).
 - insert:
     - id: sandbox-copy-on-write
-      name: "dsh-sandboxie-redirect"
+      name: "@lone-wolf-akela/dsh-sandboxie-redirect"
