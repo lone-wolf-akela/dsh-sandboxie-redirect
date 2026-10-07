@@ -90,3 +90,14 @@ node test\validate-patch.mjs <某个 patch.yml>   # 也可校验 profile 补丁 
 - **迁移陷阱（会直接导致启动失败）**：从手工通道切到 bundle 通道时，profile 的 `cordis.patch.yml` 里那三条行（绝对路径 `insert` + `sandbox` + `permission`）**必须先删掉**。同一个声明了 `dsh.client` 的包有两个活动 loader 行，client-modules 会拒绝合成并让整个 boot 失败（"resolves from multiple active Loader sources"）。
 - **CLI 不能碰桌面应用独占的 profile**：`dsh --profile desktop …` 会被拒绝（"profile desktop is managed exclusively by the Electron application"），那是 `plugin_manager`（应用内）的地盘；其它 profile 走 CLI。
 - `tools/install.mjs` 的拷贝清单已从 `package.json` 的 `files` 派生，不再手工维护、不会与发布内容漂移。
+
+## 发布清单
+
+1. `package.json` 版本号 + `CHANGELOG.md`（写清日期）。
+2. `npm test` 全绿；`npm run pack:check` 只应看到 `lib bin cordis.patch.yml README(×2) CHANGELOG LICENSE package.json`——tests / tools / probe / AGENTS / `CONTRIBUTING` / `SECURITY` 都不进包。
+3. 提交并推送，打**签名标签** `git tag -s vX.Y.Z`（本机 `commit.gpgsign=true`，历史是签名的）。
+4. `npm publish`：包名带 scope，`publishConfig.access=public` 已在包里；开了 2FA 会要一次性验证码。
+5. **pnpm 11 的 `minimumReleaseAge` 会拦住发布不足 24 小时的新版本**：实测 `dsh plugin add` 会自动往 profile 的 `pnpm-workspace.yaml` 写一条 `minimumReleaseAgeExclude` 才放行；用户直接 `pnpm add` 需自行放行。
+6. `peerDependencies` 跟着宿主版本走：宿主换到新元组（如 `0.2.1-rc.x`）时 `^0.2.0-rc.2` 不再匹配，用户会看到 incompatible 警告并需要 `dsh plugin allow-version` 开豁免——**每次跟随 DSH 版本都要用临时 profile 重测闸门**。
+7. 发布后核对三件事：`npm view <pkg> version dist-tags.latest`；**用一个临时 profile 走 `dsh plugin add <pkg>@<version>`**（按包名解析，而不是 link/tarball）；以及 `npm view <pkg>@<version> gitHead` 是否等于推送的 commit——它证明发布产物与仓库同源。
+8. **新包的 packument 有边缘传播滞后**：刚发布的一两分钟内 `npm view <pkg>` / `dsh plugin add <pkg>` 可能 404，而版本端点、`dist-tags` 与 tarball 已经 200。等一两分钟重试即可，别急着判定发布失败。

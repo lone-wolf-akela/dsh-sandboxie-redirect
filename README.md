@@ -1,5 +1,10 @@
 # dsh-sandboxie-redirect
 
+[![npm version](https://img.shields.io/npm/v/@lone-wolf-akela/dsh-sandboxie-redirect?label=npm&color=cb3837)](https://www.npmjs.com/package/@lone-wolf-akela/dsh-sandboxie-redirect)
+[![CI](https://github.com/lone-wolf-akela/dsh-sandboxie-redirect/actions/workflows/ci.yml/badge.svg)](https://github.com/lone-wolf-akela/dsh-sandboxie-redirect/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4.svg)](#installation)
+
 > **中文版**：[README.zh.md](README.zh.md)
 
 A [DSH](https://github.com/deepseek-ai/deepseek-harness) bundle that adds a fourth permission preset, **Copy-on-write (写时复制)**: shell commands run inside a Sandboxie box dedicated to the workspace, so writes inside the workspace land on the real disk as usual, while writes, edits and deletions anywhere else keep succeeding — but only inside that box's copy. The three shipped presets (read-only, workspace-write, danger-full-access) behave exactly as before.
@@ -137,14 +142,15 @@ Diagnostics: `provider.log`, `host.log`, `tool.log` under the log directory abov
 
 ## Development
 
-See [AGENTS.md](AGENTS.md) for the architecture and the hard-won constraints. The short version:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the development loop, and [AGENTS.md](AGENTS.md) for the architecture and the hard-won constraints. The short version:
 
 ```powershell
-node test\unit.mjs               # pure logic
-node test\host-projection.mjs    # the title-bar projection, without the harness bundle
-node test\validate-patch.mjs     # this bundle's layer: structure, and the preset merge actually evaluated
-node test\run-tests.mjs          # acceptance: real boxes, real redirection (outside any box, medium IL)
+npm test                         # unit + host projection + bundle-layer validation (no DSH, no Sandboxie)
+npm run test:acceptance          # acceptance: real boxes, real redirection (outside any box, medium IL)
+npm run pack:check               # what the published tarball would contain
 ```
+
+Security issues: see [SECURITY.md](SECURITY.md).
 
 ## License
 

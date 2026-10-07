@@ -1,5 +1,10 @@
 # dsh-sandboxie-redirect
 
+[![npm version](https://img.shields.io/npm/v/@lone-wolf-akela/dsh-sandboxie-redirect?label=npm&color=cb3837)](https://www.npmjs.com/package/@lone-wolf-akela/dsh-sandboxie-redirect)
+[![CI](https://github.com/lone-wolf-akela/dsh-sandboxie-redirect/actions/workflows/ci.yml/badge.svg)](https://github.com/lone-wolf-akela/dsh-sandboxie-redirect/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4.svg)](#安装)
+
 > **English**: [README.md](README.md)
 
 给 [DSH](https://github.com/deepseek-ai/deepseek-harness) 增加第四种权限预设 **「写时复制」** 的 bundle：shell 命令跑在本工作区专属的 Sandboxie 沙盒里，工作区内的写入照常落到真实磁盘；工作区外的写入、修改、删除不会失败，但只落进该沙盒的副本。原有三个预设（只读 / 仅工作区 / 完全权限）行为不变。
@@ -136,14 +141,15 @@ node bin\dsh-sbie-run.mjs --manage delete-box <沙盒名>      # 删除指定沙
 
 ## 开发
 
-架构与踩过的坑见 [AGENTS.md](AGENTS.md)。常用命令：
+环境准备与开发回路见 [CONTRIBUTING.md](CONTRIBUTING.md)，架构与踩过的坑见 [AGENTS.md](AGENTS.md)。常用命令：
 
 ```powershell
-node test\unit.mjs               # 纯逻辑
-node test\host-projection.mjs    # 标题栏投影（不依赖 harness 包）
-node test\validate-patch.mjs     # 本 bundle 的层：结构 + 真的执行预设合并表达式
-node test\run-tests.mjs          # 验收：真沙盒、真重定向（须在盒外、Medium IL）
+npm test                         # 单元 + 标题栏投影 + bundle 层校验（不需要 DSH、不需要 Sandboxie）
+npm run test:acceptance          # 验收：真沙盒、真重定向（须在盒外、Medium IL）
+npm run pack:check               # 看发布的 tarball 里会有什么
 ```
+
+安全问题见 [SECURITY.md](SECURITY.md)。
 
 ## 许可
 
