@@ -84,7 +84,7 @@ node test\validate-patch.mjs <某个 patch.yml>   # 也可校验 profile 补丁 
 
 ## 环境变量、沙盒根与迁移
 
-- `DSH_SBIE_ROOT`：沙盒根覆盖。`sbieSandboxRoot()` 默认按 `%SystemDrive%\Sandbox\%USERNAME%` 推导；Sandboxie-Plus 允许把沙盒目录改到别处（`FileRootPath`），而同一个根要被三个进程用到——启动器 / `--manage`（能问 Sandboxie 服务）、宿主半边（只读 ini）、测试（什么都问不了）——所以用这个变量统一覆盖；`boxRoot(box, root)` 也接受调用方自己解析好的根。**尚未实现**：自动读 `FileRootPath` 并展开 `%USER%`/`%SANDBOX%`，所以改过目录的用户必须设这个变量（README 已写明）。
+- `DSH_SBIE_ROOT`：沙盒根（**父目录**）覆盖。`FileRootPath` 会被自动跟随：宿主半边读 ini（`fileRootPathFor` → 盒级优先、其次 `[GlobalSettings]`），启动器 / `--manage` 走 `SbieIni query`（进程内按盒 memo），两者都交给 `resolveBoxRoot()`。要点：**`FileRootPath` 指的是该盒自己的目录**（模板含 `%SANDBOX%`），而 `boxRoot(box, parent)` 接的是父目录——两者不可混用。模板若不含 `%SANDBOX%`、含未知占位符、或展开后不是绝对路径，一律返回 `null` 退回默认布局：**错误路径的代价必须是"漏清理"，绝不能是"删错目录"**（`--manage` 的删除是 `rm -rf` 那个目录）。
 - 其它覆盖：`DSH_SBIE_NODE`（真 node）、`DSH_SBIE_LOG_DIR`（日志目录）、`DSH_SBIE_INI`（ini 路径）、`DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT`（koffi 定位）。
 - **迁移陷阱（会直接导致启动失败）**：从手工通道切到 bundle 通道时，profile 的 `cordis.patch.yml` 里那三条行（绝对路径 `insert` + `sandbox` + `permission`）**必须先删掉**。同一个声明了 `dsh.client` 的包有两个活动 loader 行，client-modules 会拒绝合成并让整个 boot 失败（"resolves from multiple active Loader sources"）。
 - **CLI 不能碰桌面应用独占的 profile**：`dsh --profile desktop …` 会被拒绝（"profile desktop is managed exclusively by the Electron application"），那是 `plugin_manager`（应用内）的地盘；其它 profile 走 CLI。

@@ -92,7 +92,7 @@ DSH 的文件工具（读/写/编辑）在盒外运行，仍按「仅工作区�
   - shell 命令在盒内运行，读到的是合并视图：如果之前有命令在工作区外写过该文件，命令看到的是副本里的版本。
   - DSH 的文件工具在盒外运行，读到的一直是真实磁盘上的版本。
   - 因此：验证"命令在工作区外写了什么"用 shell 命令读；验证"真实磁盘有没有被改动"用 DSH 的文件工具（或资源管理器）读。
-- **副本位置**：普通路径在 `<沙盒根>\drive\<盘符>\<路径>`；用户目录下的路径在 `<沙盒根>\user\current\<相对路径>`。沙盒根默认 `C:\Sandbox\<用户>\<沙盒名>`；如果你改过 Sandboxie 的沙盒目录，把 `DSH_SBIE_ROOT` 指到新根（见[环境变量](#环境变量)）。
+- **副本位置**：普通路径在 `<沙盒根>\drive\<盘符>\<路径>`；用户目录下的路径在 `<沙盒根>\user\current\<相对路径>`。Sandboxie 自己配置的沙盒目录会被自动跟随（`FileRootPath`，盒级或 `[GlobalSettings]`，含 `%USER%`/`%SANDBOX%` 展开）；需要时可用 `DSH_SBIE_ROOT` 覆盖（见[环境变量](#环境变量)）。
 - **磁盘占用**：副本不自动回收，会持续累积。
 - **`C:\Windows\Temp`**：修改其中**已存在**的文件可能被拒（Sandboxie 原生行为，非本插件所致）；新建与删除不受影响。
 - **并发**：同一工作区的并发命令共用一个沙盒，互相可见。
@@ -117,7 +117,7 @@ node bin\dsh-sbie-run.mjs --manage delete-box <沙盒名>      # 删除指定沙
 | 变量 | 作用 |
 |---|---|
 | `DSH_SBIE_NODE` | 跑启动器的 `node.exe`。插件会自动去找（桌面应用自带的运行时，其次 `$DSH_HOME/dsh-runtimes`），找不到时用它指定。 |
-| `DSH_SBIE_ROOT` | 沙盒根。用于你把 Sandboxie 的沙盒目录改到了别处；默认 `%SystemDrive%\Sandbox\%USERNAME%`。 |
+| `DSH_SBIE_ROOT` | 覆盖沙盒根。通常不需要：Sandboxie 配置的 `FileRootPath` 会被自动跟随。默认 `%SystemDrive%\Sandbox\%USERNAME%`。 |
 | `DSH_SBIE_LOG_DIR` | 诊断日志目录。默认 `$DSH_HOME/state/dsh-sandboxie-redirect`。 |
 | `DSH_SBIE_INI` | 要读取的 Sandboxie 配置文件。默认 `%SystemDrive%\Windows\Sandboxie.ini`。 |
 | `DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT` | 启动器要用的 `koffi.node`（或含它的目录），当找不到应用自带的那份时使用。 |

@@ -26,6 +26,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { boxRoot } from "../lib/naming.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginDir = path.dirname(here);
@@ -325,6 +326,40 @@ check("the reader survives a missing configuration file", () => {
   assert.equal(host.readIniSections(), null, "an unreadable file must answer null, never throw");
   process.env.DSH_SBIE_INI = previous;
   host.invalidateBoxCache();
+});
+
+check("the reported copy root follows Sandboxie's configured FileRootPath", () => {
+  const box = "dsh_brisk_otter";
+  const user = process.env.USERNAME ?? "user";
+  const previousRoot = process.env.DSH_SBIE_ROOT;
+  // The override would (correctly) win over every template, so this check runs
+  // without one; a developer who has it set must not break the suite.
+  delete process.env.DSH_SBIE_ROOT;
+  try {
+  // A box-level setting beats the global one; %USER%/%SANDBOX% are expanded.
+  const sections = host.parseIniSections([
+    "[GlobalSettings]",
+    "FileRootPath=D:\\global\\%USER%\\%SANDBOX%",
+    "",
+    `[${box}]`,
+    "Enabled=y",
+    "FileRootPath=D:\\box-level\\%SANDBOX%"
+  ].join("\r\n"));
+  assert.equal(host.fileRootPathFor(box, sections), "D:\\box-level\\%SANDBOX%");
+  assert.equal(host.rootForBox(box, sections), path.join("D:\\box-level", box));
+
+  const globalOnly = host.parseIniSections("[GlobalSettings]\r\nFileRootPath=D:\\global\\%USER%\\%SANDBOX%\r\n");
+  assert.equal(host.rootForBox(box, globalOnly), path.join("D:\\global", user, box));
+
+  // No declaration, or one this plugin cannot expand: the default layout.
+  const none = host.parseIniSections("[GlobalSettings]\r\nTemplate=X\r\n");
+  assert.equal(host.rootForBox(box, none), boxRoot(box));
+  const unknown = host.parseIniSections("[GlobalSettings]\r\nFileRootPath=D:\\sbie\\%SID%\\%SANDBOX%\r\n");
+  assert.equal(host.rootForBox(box, unknown), boxRoot(box), "an unexpandable template must not be trusted");
+  } finally {
+    if (previousRoot === undefined) delete process.env.DSH_SBIE_ROOT;
+    else process.env.DSH_SBIE_ROOT = previousRoot;
+  }
 });
 
 check("init returns null for a header without a usable cwd", () => {

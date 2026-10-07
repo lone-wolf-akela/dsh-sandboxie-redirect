@@ -93,7 +93,7 @@ In-session, `sandbox_clear` inspects or discards this workspace's copy: `mode: "
   - Shell commands run inside the box and may see the merged view — if an earlier command wrote that file outside the workspace, the command sees the copy's version.
   - DSH's file tools run outside the box and always see the real disk.
   - So: to see "what a command wrote outside the workspace", read with a shell command; to see "was the real disk changed", read with DSH's file tools (or File Explorer).
-- **Copy location**: ordinary paths at `<sandbox root>\drive\<drive>\<path>`; paths under the user profile at `<sandbox root>\user\current\<relative path>`. The default sandbox root is `C:\Sandbox\<user>\<box>`; if you relocated Sandboxie's sandbox folder, set `DSH_SBIE_ROOT` to the new root (see [Environment](#environment)).
+- **Copy location**: ordinary paths at `<sandbox root>\drive\<drive>\<path>`; paths under the user profile at `<sandbox root>\user\current\<relative path>`. Sandboxie's own sandbox folder is followed automatically (its `FileRootPath`, box setting or `[GlobalSettings]`, with `%USER%`/`%SANDBOX%` expanded); `DSH_SBIE_ROOT` overrides that if you need it (see [Environment](#environment)).
 - **Disk usage**: copies are not reclaimed automatically and keep growing.
 - **`C:\Windows\Temp`**: modifying an *existing* file there may be refused — native Sandboxie behavior, not this plugin's. Creating and deleting files there works.
 - **Concurrency**: concurrent commands in one workspace share one box and see each other's changes.
@@ -118,7 +118,7 @@ All optional; each exists as an escape hatch rather than a configuration surface
 | Variable | Effect |
 |---|---|
 | `DSH_SBIE_NODE` | The `node.exe` that runs the launcher. Set it if the plugin cannot find one (the desktop app's own runtime, then `$DSH_HOME/dsh-runtimes`, are searched automatically). |
-| `DSH_SBIE_ROOT` | The sandbox root, for a relocated Sandboxie sandbox folder. Default `%SystemDrive%\Sandbox\%USERNAME%`. |
+| `DSH_SBIE_ROOT` | Overrides the sandbox root. Normally unnecessary: Sandboxie's configured `FileRootPath` is followed. Default `%SystemDrive%\Sandbox\%USERNAME%`. |
 | `DSH_SBIE_LOG_DIR` | Where diagnostics land. Default `$DSH_HOME/state/dsh-sandboxie-redirect`. |
 | `DSH_SBIE_INI` | The Sandboxie configuration file to read. Default `%SystemDrive%\Windows\Sandboxie.ini`. |
 | `DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT` | A `koffi.node` (or a directory holding one) for the launcher, when the app's copy cannot be found. |

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { boxNameCandidates, boxNameFor, boxRoot, canonicalWorkspace, fnv1a64, isManagedBoxName, sbieSandboxRoot } from "../lib/naming.mjs";
+import { boxNameCandidates, boxNameFor, boxRoot, canonicalWorkspace, expandFileRootPath, fnv1a64, isManagedBoxName, resolveBoxRoot, sbieSandboxRoot } from "../lib/naming.mjs";
 import { REDIRECT_PRESET, RUNNER_FATAL_SIGNATURE, isRedirectPresetState, redirectArgv, redirectPolicyNote, redirectWrap, resolveNodePath } from "../lib/redirect.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -102,6 +102,34 @@ check("a relocated sandbox folder is reachable: DSH_SBIE_ROOT wins, and boxRoot 
     if (previous === undefined) delete process.env.DSH_SBIE_ROOT;
     else process.env.DSH_SBIE_ROOT = previous;
   }
+});
+
+check("a Sandboxie FileRootPath becomes the box directory, or is refused when it cannot be trusted", () => {
+  const env = { USERNAME: "someone", SystemDrive: "C:", WINDIR: "C:\\Windows", USERPROFILE: "C:\\Users\\someone" };
+  const expand = (template, box = "dsh_a_b") => expandFileRootPath(template, { box, env });
+
+  assert.equal(expand("D:\\Sbie\\%USER%\\%SANDBOX%"), path.normalize("D:\\Sbie\\someone\\dsh_a_b"));
+  assert.equal(expand("D:\\Sbie\\%sandbox%"), path.normalize("D:\\Sbie\\dsh_a_b"), "placeholders are case-insensitive");
+  assert.equal(expand("  D:\\Sbie\\%USER%\\%SANDBOX%  "), path.normalize("D:\\Sbie\\someone\\dsh_a_b"), "surrounding space is trimmed");
+
+  // Every refusal below protects the same thing: a directory this plugin would
+  // otherwise measure and DELETE as if it were one box's copy.
+  assert.equal(expand(""), null);
+  assert.equal(expand("   "), null);
+  assert.equal(expand(undefined), null);
+  assert.equal(expand("D:\\Sbie\\%USER%"), null, "without %SANDBOX% every box would share one directory");
+  assert.equal(expand("relative\\%SANDBOX%"), null, "a non-absolute template is not usable");
+  assert.equal(expand("D:\\Sbie\\%SID%\\%SANDBOX%"), null, "an unknown placeholder must not be guessed");
+  assert.equal(expandFileRootPath("D:\\Sbie\\%SANDBOX%", { box: undefined, env }), null, "…and neither may a missing box name");
+
+  const overridden = { ...env, DSH_SBIE_ROOT: "E:\\override" };
+  assert.equal(resolveBoxRoot("dsh_a_b", { template: "D:\\Sbie\\%SANDBOX%", env }), path.normalize("D:\\Sbie\\dsh_a_b"));
+  assert.equal(resolveBoxRoot("dsh_a_b", { template: "nonsense", env }), path.normalize("C:\\Sandbox\\someone\\dsh_a_b"));
+  assert.equal(
+    resolveBoxRoot("dsh_a_b", { template: "D:\\Sbie\\%SANDBOX%", env: overridden }),
+    path.join(path.resolve("E:\\override"), "dsh_a_b"),
+    "the override outranks a configured template, and names the PARENT"
+  );
 });
 
 check("the redirect argv is explicit, ordered, and preserves the command verbatim", () => {

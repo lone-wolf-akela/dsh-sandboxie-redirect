@@ -50,6 +50,7 @@
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "keywords": [
@@ -73,6 +74,13 @@
       ],
       "platform": "web"
     }
+  },
+  "scripts": {
+    "test": "node test/unit.mjs && node test/host-projection.mjs && node test/validate-patch.mjs",
+    "test:acceptance": "node test/run-tests.mjs",
+    "test:soak": "node test/soak.mjs 30",
+    "validate:patch": "node test/validate-patch.mjs",
+    "pack:check": "npm pack --dry-run"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",

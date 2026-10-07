@@ -1,0 +1,24 @@
+name: CI
+
+# Only the tests that need no Sandboxie run here: the acceptance suite and the
+# soak test create real sandboxes and must run on a Windows box that has
+# Sandboxie-Plus installed, so they stay a local (documented) step.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # The only devDependency is js-yaml, which test/validate-patch.mjs parses
+      # the layer with. Any package manager works; this one needs no setup step.
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - name: Check what would be published
+        run: npm pack --dry-run
