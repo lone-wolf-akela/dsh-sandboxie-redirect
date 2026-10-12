@@ -83,12 +83,15 @@ node test\soak.mjs 30                          # 稳定性/延迟
 node test\unit.mjs                             # 单元
 node test\sbie-locate.mjs                      # 安装目录查找（不需要 Sandboxie / 注册表 / Windows 也能跑）
 node test\dsh-locate.mjs                       # DSH 自身安装位置查找（同上，含真机 canary）
+node test\tool-execute.mjs                     # sandbox_clear 的 status / inspect / clear 三条执行路径（离线）
 node test\host-projection.mjs
 node test\validate-patch.mjs                   # 默认校验本仓库的 cordis.patch.yml（bundle 层）
 node test\validate-patch.mjs <某个 patch.yml>   # 也可校验 profile 补丁 / 手工通道
 ```
 
 `validate-patch.mjs` 需要 js-yaml（harness 自己用的解析器），按顺序在 `node_modules`（devDependency）、`asar-yaml/`（本地从 `app.asar` 提取的副本）、`$DSH_HOME/profiles/node_modules` 里找，或用 `DSH_YAML` 指定。它同时支持两种行形态：bundle 层的**包名**行，以及手工通道的**绝对路径**行（后者会从行反推包目录，因此校验的是实际挂载的那份代码）。
+
+`host-projection.mjs` 与 `tool-execute.mjs` 都用同一套"**只重定向必要的 import、加载真模块的临时副本**"手法（把相对 import 换成 `file://` 绝对 URL，写入临时目录再 import）：host 半边只需要换掉 `./core.mjs`，tool 半边换成 harness loader / `resolveNodePath` / `spawnSync` 三个桩。这样测的是**真正要发布的那段代码**，而不是它的复制品或源码文本匹配——`tool-execute.mjs` 就是靠它把 `mode: "status"` 的 TDZ 变成可复现的失败。加新工具/新模式时，先照这个形状补一条执行级用例。
 
 验收与 soak 必须在沙盒外、普通用户令牌（Medium IL）下运行；在 DSH 的 Low IL 沙盒里跑无意义。测试会把 `DSH_SBIE_LOG_DIR` 指到临时目录，避免污染真实用户的 `$DSH_HOME/state`。
 

@@ -3,6 +3,26 @@
 Notable changes per release. The format is loose; the version numbers are what
 the DSH compatibility gate reads.
 
+## 0.3.3 — 2026-10-13
+
+**`sandbox_clear` mode `status` never worked**
+
+- `execute` referenced `workspace` in the `status` early return while the
+  `const workspace = …` that names it was declared below, in the same function
+  body. A `const` in its temporal dead zone throws on *any* earlier reference, so
+  `mode: "status"` failed on every call with `ReferenceError: Cannot access
+  'workspace' before initialization`. The declaration now precedes every use,
+  which is also what `status` was always meant to report: the canonical workspace
+  alongside the projection registry's state for the calling session.
+- The defect came in with the 0.2.1 import, so it shipped in 0.3.0, 0.3.1 and
+  0.3.2; `inspect` and `clear` were unaffected, because they use `workspace`
+  after the declaration.
+- New `test/tool-execute.mjs` drives all three modes of the real tool offline
+  (only the harness loader, the Node lookup and `spawnSync` are redirected), so
+  this — and any future runtime failure in a mode nobody exercises by hand — is a
+  failed test rather than a report from a user. It reproduces the
+  `ReferenceError` on the pre-fix source.
+
 ## 0.3.2 — 2026-10-13
 
 **DeepSeek Harness installation lookup**

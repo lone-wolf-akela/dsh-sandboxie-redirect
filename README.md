@@ -94,7 +94,7 @@ The preset carries an icon (two overlapping sheets) in the dropdown and the bott
 
 ### The `sandbox_clear` tool
 
-In-session, `sandbox_clear` inspects or discards this workspace's copy: `mode: "inspect"` reports (file count, size), `mode: "clear"` deletes the copy and its configuration. It works in every permission mode, and can only ever touch boxes Sandboxie attributes to *this* workspace.
+In-session, `sandbox_clear` inspects or discards this workspace's copy: `mode: "inspect"` reports (file count, size), `mode: "clear"` deletes the copy and its configuration. It works in every permission mode, and can only ever touch boxes Sandboxie attributes to *this* workspace. A diagnostic `mode: "status"` reports what the session projection registry holds for the calling session — it separates "the fold never ran" from "the client never got it", so it is the first thing to look at when the title-bar box name is missing (it only actually worked from 0.3.3 on).
 
 ## Notes for users
 
