@@ -40,6 +40,8 @@ A [DSH](https://github.com/deepseek-ai/deepseek-harness) bundle that adds a four
 
 **Prerequisite:** [Sandboxie-Plus](https://sandboxie-plus.com/) ([source](https://github.com/sandboxie-plus/Sandboxie)). The installer must have created its service; every box this plugin uses is created and managed by Sandboxie.
 
+**Any installation folder works — there is nothing to configure.** The plugin does not assume Sandboxie lives in one fixed directory: it reads Sandboxie's own registry entries first (the `SbieSvc` service's `ImagePath` is the authority — an installation that can create a box always has it, followed by the driver service and the installer's uninstall entry), then the conventional folders and `PATH`, and only as a last resort sweeps well-known parent folders and each fixed drive's root for a folder named after Sandboxie that holds `SbieDll.dll`. Another drive, a per-user folder and a portable directory all work. Only when every one of those comes up empty does it report "not installed", and that message names `DSH_SBIE_DIR` (see [Environment](#environment)) as the way to point at it directly.
+
 The package is a DSH *bundle*: installing it also adds its configuration layer, so no profile file needs hand-editing.
 
 ```powershell
@@ -55,7 +57,7 @@ Other supported sources, for a local checkout or an offline machine:
 
 ```powershell
 dsh plugin --profile <profile> add C:\path\to\dsh-sandboxie-redirect   # a checkout (linked)
-dsh plugin --profile <profile> add .\lone-wolf-akela-dsh-sandboxie-redirect-0.3.0.tgz
+dsh plugin --profile <profile> add .\lone-wolf-akela-dsh-sandboxie-redirect-0.3.1.tgz
 ```
 
 > **Which command for which profile?** The CLI refuses to touch a profile that a running desktop app owns (`profile "desktop" is managed exclusively by the Electron application`). For that profile, install from inside the app: **Settings → Plugins → add a bundle**, and give the package name above. For any other profile, the CLI works normally.
@@ -123,6 +125,7 @@ All optional; each exists as an escape hatch rather than a configuration surface
 
 | Variable | Effect |
 |---|---|
+| `DSH_SBIE_DIR` | The Sandboxie installation folder (the one holding `SbieDll.dll`). Normally unnecessary: the automatic lookup reads Sandboxie's registry entries, the conventional folders and `PATH` first. Use it when Sandboxie lives somewhere unusual and that lookup misses it. |
 | `DSH_SBIE_NODE` | The `node.exe` that runs the launcher. Set it if the plugin cannot find one (the desktop app's own runtime, then `$DSH_HOME/dsh-runtimes`, are searched automatically). |
 | `DSH_SBIE_ROOT` | Overrides the sandbox root. Normally unnecessary: Sandboxie's configured `FileRootPath` is followed. Default `%SystemDrive%\Sandbox\%USERNAME%`. |
 | `DSH_SBIE_LOG_DIR` | Where diagnostics land. Default `$DSH_HOME/state/dsh-sandboxie-redirect`. |

@@ -3,6 +3,29 @@
 Notable changes per release. The format is loose; the version numbers are what
 the DSH compatibility gate reads.
 
+## 0.3.1 — 2026-10-12
+
+**Sandboxie installation lookup**
+
+- The engine is no longer looked for in a fixed four-path list. The new
+  `lib/sbie-locate.mjs` reads Sandboxie's own registry entries first — the
+  `SbieSvc` service's `ImagePath` above all, which every installation able to
+  create a box must have — then the driver service and the installer's uninstall
+  entry, then the conventional folders and `PATH`, and only as a last resort
+  walks well-known parent folders and fixed-drive roots for a directory named
+  after Sandboxie. An installation on another drive, in a per-user folder or in
+  a portable directory is now found instead of reported as "not installed".
+- `DSH_SBIE_DIR` still wins when set, and the "not installed" error now names it
+  as well as `SbieDll.dll`, so the remaining unusual cases are actionable.
+- `--manage list` prints the installation folder it resolved and how it found it
+  (registry / conventional folder / `PATH` / disk scan).
+- The registry is read through `koffi`/`advapi32` when available — exact wide
+  characters, no subprocess — and through `reg.exe` when it is not.
+- New `test/sbie-locate.mjs` (25 checks, no Sandboxie and no registry needed)
+  covers the registry value shapes, the candidate ordering, and the staged
+  resolution, including that the disk scan runs only when nothing cheap answers.
+  It is part of `npm test`.
+
 ## 0.3.0 — 2026-10-07
 
 The distribution changed shape, so this is a breaking release for the earlier

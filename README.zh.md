@@ -39,6 +39,8 @@
 
 **前置条件**：[Sandboxie-Plus](https://sandboxie-plus.com/)（[源码](https://github.com/sandboxie-plus/Sandboxie)）。安装后它的服务须在运行；本插件的所有沙盒都由 Sandboxie 创建与管理。
 
+**装在哪儿都行，不需要配置。** 插件不假设 Sandboxie 在某个固定目录：它先读 Sandboxie 自己的注册表项（`SbieSvc` 服务的 `ImagePath` 最权威——能建沙盒的安装必然有它，其次是驱动服务与卸载项），再看 `%ProgramFiles%\Sandboxie-Plus` 等常规位置与 `PATH`，最后才按名字扫一遍常见父目录与各固定磁盘根目录，找含 `SbieDll.dll` 的文件夹。装在别的盘、用户目录、便携目录都可以。只有全部落空时才会报 "not installed"，此时用 `DSH_SBIE_DIR` 直接指定（见[环境变量](#环境变量)）。
+
 本包是 DSH 的 **bundle**（自带配置层），装进去就自动挂载，**不需要手改 profile 文件**。
 
 ```powershell
@@ -54,7 +56,7 @@ dsh --profile <profile>
 
 ```powershell
 dsh plugin --profile <profile> add C:\path\to\dsh-sandboxie-redirect   # 本地 checkout（link 方式）
-dsh plugin --profile <profile> add .\lone-wolf-akela-dsh-sandboxie-redirect-0.3.0.tgz
+dsh plugin --profile <profile> add .\lone-wolf-akela-dsh-sandboxie-redirect-0.3.1.tgz
 ```
 
 > **哪个 profile 用哪条路？** 正在运行的桌面应用独占的 profile（`desktop`）会被 CLI 拒绝操作（`profile "desktop" is managed exclusively by the Electron application`）。这种 profile 请在**应用内**装：**设置 → 插件 → 添加 bundle**，填上面的包名。其它 profile 用 CLI 即可。
@@ -122,6 +124,7 @@ node bin\dsh-sbie-run.mjs --manage delete-box <沙盒名>      # 删除指定沙
 
 | 变量 | 作用 |
 |---|---|
+| `DSH_SBIE_DIR` | Sandboxie 安装目录（含 `SbieDll.dll` 的那个文件夹）。通常不需要：上面的自动查找会先从注册表、常规位置与 `PATH` 里找。装在非常规目录且自动查找没命中时用它。 |
 | `DSH_SBIE_NODE` | 跑启动器的 `node.exe`。插件会自动去找（桌面应用自带的运行时，其次 `$DSH_HOME/dsh-runtimes`），找不到时用它指定。 |
 | `DSH_SBIE_ROOT` | 覆盖沙盒根。通常不需要：Sandboxie 配置的 `FileRootPath` 会被自动跟随。默认 `%SystemDrive%\Sandbox\%USERNAME%`。 |
 | `DSH_SBIE_LOG_DIR` | 诊断日志目录。默认 `$DSH_HOME/state/dsh-sandboxie-redirect`。 |

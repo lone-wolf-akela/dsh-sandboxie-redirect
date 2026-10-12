@@ -13,6 +13,7 @@
 | `lib/tool.mjs` + `lib/tool-schema.mjs` | `sandbox_clear` 工具与其输出 schema（含离线 DSL 校验 `valueSchemaViolations()`）。 |
 | `lib/log.mjs` | 诊断落点：`$DSH_HOME/state/dsh-sandboxie-redirect/`，可用 `DSH_SBIE_LOG_DIR` 覆盖。**绝不写进包目录**——bundle 装在 profile 的 `node_modules`（可能直接来自 pnpm store）里。 |
 | `lib/naming.mjs` / `boxes.mjs` / `sbie.mjs` / `koffi.mjs` / `core.mjs` / `redirect.mjs` | 命名、沙盒操作、Sandboxie FFI、核心包加载、重定向拼装。 |
+| `lib/sbie-locate.mjs` | 找 Sandboxie 安装目录（注册表 → 常规目录 → `PATH` → 扫盘），与 `sbie.mjs` 的 `sbieDir()` 分开，因为这里的每个副作用都可注入、能离线单测。 |
 | `cordis.patch.yml` | 本包的 **bundle 层**（`dsh.bundle.patch`）：禁用 stock sandbox 行、把 `copy-on-write` 合并进 `permission` 行的预设目录、插入本包。行按**包名**引用，不含绝对路径。 |
 | `bin/dsh-sbie-run.mjs` | 启动器（纯 Node 进程，持有 Sandboxie FFI 与 `--manage`）。 |
 | `tools/install.mjs` / `verify-box-binding.mjs` / `inspect-copies.mjs` | **手工通道**（把工作区拷进 `~/.dsh/plugins`）的安装/校验/清单工具，面向维护者；公开用户走 `dsh plugin add`。 |
@@ -63,6 +64,8 @@
 ## Sandboxie 技术要点
 
 - **可编程入口**：`SbieDll_RunSandboxed`（stdcall，6 参数，`@24`）。`Start.exe` 是 GUI 子系统程序，拿不到 stdio 与退出码。
+- **安装目录不是固定路径，查找走 `lib/sbie-locate.mjs`**：顺序是 `DSH_SBIE_DIR` → 注册表 → 常规目录（`%ProgramFiles%\Sandboxie-Plus` 等，含写死的 `C:\Program Files\Sandboxie-Plus`）→ `PATH` 里名字带 sbie/sandboxie 的条目 → 扫盘。注册表里最权威的是 `HKLM\SYSTEM\CurrentControlSet\Services\SbieSvc` 的 `ImagePath`（**能建盒的安装必然注册了该服务**，所以它指向的就是插件必须用的那份；`SbieDrv` 的 `ImagePath` 与卸载项的 `InstallLocation` / `Inno Setup: App Path` 是补充）。注册表**先走 koffi/advapi32 的 `RegGetValueW`**（宽字符、无子进程、`REG_EXPAND_SZ` 由系统展开），koffi 不可用才退到 `reg.exe` 并按 `%NAME%` 自己展开。扫盘是最后一招且只做**一级**：常见父目录 + 各固定盘根，盘符用 koffi 的 `GetLogicalDrives`/`GetDriveTypeW` 取，**只扫 `DRIVE_FIXED`**（扫网络盘/空光驱会卡住）。判定标准仍是"该目录下有 `SbieDll.dll`"。不要退回"固定四路径"——那正是"装在非默认目录就报未安装"的根因。
+- **`SbieDll_RunSandboxed` 之外的第二入口**：`SbieIni.exe`（`sbieIni()`）改盒配置，走服务写 `Sandboxie.ini`，不需要管理员令牌。
 - **stdio 不通**：进程由 `SbieSvc` 创建，`STARTUPINFOW` 里的标准句柄被忽略；需自建回传。命名管道不通（沙盒内进程连不上），**回环 TCP 可用**——本插件用回环 TCP + 长度前缀帧。
 - **命名**：`dsh_<形容词>_<名词>`，由工作区绝对路径（小写）经 64 位 FNV-1a 映射到 90×90 词表；冲突时按确定性候选序列顺延（`boxNameCandidates`），并据沙盒配置里的 `OpenFilePath` 判断归属。约束：盒名仅 `[A-Za-z0-9_]`、宽字符 ≤ 34。启动器也支持 `--mode read-only` 下的 `dshr_` 前缀，但 DSH 的只读预设走原生 ACL runner、不使用沙盒，`dshr_` 盒只会出现在手动以 `--mode read-only` 调用启动器时；历史遗留的 `Dsh_<8 位十六进制>` 盒仍被识别，可被 `--manage` 列出与清理。
 - **副本布局**：普通路径 `<沙盒根>\drive\<盘符>\<路径>`；用户目录下 `<沙盒根>\user\current\<相对路径>`。
@@ -74,6 +77,7 @@
 node test\run-tests.mjs                       # 验收
 node test\soak.mjs 30                          # 稳定性/延迟
 node test\unit.mjs                             # 单元
+node test\sbie-locate.mjs                      # 安装目录查找（不需要 Sandboxie / 注册表 / Windows 也能跑）
 node test\host-projection.mjs
 node test\validate-patch.mjs                   # 默认校验本仓库的 cordis.patch.yml（bundle 层）
 node test\validate-patch.mjs <某个 patch.yml>   # 也可校验 profile 补丁 / 手工通道
@@ -86,7 +90,7 @@ node test\validate-patch.mjs <某个 patch.yml>   # 也可校验 profile 补丁 
 ## 环境变量、沙盒根与迁移
 
 - `DSH_SBIE_ROOT`：沙盒根（**父目录**）覆盖。`FileRootPath` 会被自动跟随：宿主半边读 ini（`fileRootPathFor` → 盒级优先、其次 `[GlobalSettings]`），启动器 / `--manage` 走 `SbieIni query`（进程内按盒 memo），两者都交给 `resolveBoxRoot()`。要点：**`FileRootPath` 指的是该盒自己的目录**（模板含 `%SANDBOX%`），而 `boxRoot(box, parent)` 接的是父目录——两者不可混用。模板若不含 `%SANDBOX%`、含未知占位符、或展开后不是绝对路径，一律返回 `null` 退回默认布局：**错误路径的代价必须是"漏清理"，绝不能是"删错目录"**（`--manage` 的删除是 `rm -rf` 那个目录）。
-- 其它覆盖：`DSH_SBIE_NODE`（真 node）、`DSH_SBIE_LOG_DIR`（日志目录）、`DSH_SBIE_INI`（ini 路径）、`DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT`（koffi 定位）。
+- 其它覆盖：`DSH_SBIE_DIR`（Sandboxie 安装目录；自动查找失败时才需要）、`DSH_SBIE_NODE`（真 node）、`DSH_SBIE_LOG_DIR`（日志目录）、`DSH_SBIE_INI`（ini 路径）、`DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT`（koffi 定位）。
 - **迁移陷阱（会直接导致启动失败）**：从手工通道切到 bundle 通道时，profile 的 `cordis.patch.yml` 里那三条行（绝对路径 `insert` + `sandbox` + `permission`）**必须先删掉**。同一个声明了 `dsh.client` 的包有两个活动 loader 行，client-modules 会拒绝合成并让整个 boot 失败（"resolves from multiple active Loader sources"）。
 - **CLI 不能碰桌面应用独占的 profile**：`dsh --profile desktop …` 会被拒绝（"profile desktop is managed exclusively by the Electron application"），那是 `plugin_manager`（应用内）的地盘；其它 profile 走 CLI。
 - `tools/install.mjs` 的拷贝清单已从 `package.json` 的 `files` 派生，不再手工维护、不会与发布内容漂移。
