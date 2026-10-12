@@ -42,6 +42,8 @@ A [DSH](https://github.com/deepseek-ai/deepseek-harness) bundle that adds a four
 
 **Any installation folder works — there is nothing to configure.** The plugin does not assume Sandboxie lives in one fixed directory: it reads Sandboxie's own registry entries first (the `SbieSvc` service's `ImagePath` is the authority — an installation that can create a box always has it, followed by the driver service and the installer's uninstall entry), then the conventional folders and `PATH`, and only as a last resort sweeps well-known parent folders and each fixed drive's root for a folder named after Sandboxie that holds `SbieDll.dll`. Another drive, a per-user folder and a portable directory all work. Only when every one of those comes up empty does it report "not installed", and that message names `DSH_SBIE_DIR` (see [Environment](#environment)) as the way to point at it directly.
 
+**DSH's own installation folder is not assumed either.** The `koffi.node` the launcher needs ships *inside* DSH, under its `resources\app.asar.unpacked`, and the launcher is a plain Node process with no `process.resourcesPath`. So the plugin locates DSH itself: the Node running the launcher (the desktop app's own runtime lives inside the installation, so that path points back at it), then the installer's uninstall entry, then the conventional folders and `PATH`. DSH installed on another drive works too.
+
 The package is a DSH *bundle*: installing it also adds its configuration layer, so no profile file needs hand-editing.
 
 ```powershell
@@ -130,7 +132,7 @@ All optional; each exists as an escape hatch rather than a configuration surface
 | `DSH_SBIE_ROOT` | Overrides the sandbox root. Normally unnecessary: Sandboxie's configured `FileRootPath` is followed. Default `%SystemDrive%\Sandbox\%USERNAME%`. |
 | `DSH_SBIE_LOG_DIR` | Where diagnostics land. Default `$DSH_HOME/state/dsh-sandboxie-redirect`. |
 | `DSH_SBIE_INI` | The Sandboxie configuration file to read. Default `%SystemDrive%\Windows\Sandboxie.ini`. |
-| `DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT` | A `koffi.node` (or a directory holding one) for the launcher, when the app's copy cannot be found. |
+| `DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT` | A `koffi.node` (or a directory holding one) for the launcher. Normally unnecessary: DSH's own installation folder is located automatically (see [Installation](#installation)). |
 | `DSH_SBIE_BOX` / `DSH_SANDBOX_ROOT` | **Set by the plugin** inside a command; authoritative for "which box am I in" — never derive the name from the workspace path. |
 
 Diagnostics: `provider.log`, `host.log`, `tool.log` under the log directory above. The host log is capped at 512 KB and records only state transitions.

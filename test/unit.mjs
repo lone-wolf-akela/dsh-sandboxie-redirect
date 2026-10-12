@@ -299,6 +299,10 @@ check("the plugin ships the files the profile rows point at", () => {
   assert.equal(manifest.name, "@lone-wolf-akela/dsh-sandboxie-redirect");
   assert.equal(manifest.dsh?.client?.platform, "web");
   assert.equal(manifest.exports?.["./client"]?.default, "./lib/client.js");
+  // No leading "./": npm normalizes one away and then reports the entry as an
+  // "invalid script name … removed" on every publish. The path resolves either
+  // way, so the fix is to ship the form npm already considers correct.
+  assert.equal(manifest.bin?.["dsh-sbie-run"], "bin/dsh-sbie-run.mjs", "the bin target must not carry a leading ./ for npm");
   // The module-loader id and the bundle row are both the package name, so the
   // three cannot drift apart silently.
   const clientSource = fs.readFileSync(path.join(pluginDir, "lib", "client.js"), "utf8");

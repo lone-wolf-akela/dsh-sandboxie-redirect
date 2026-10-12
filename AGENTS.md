@@ -14,6 +14,7 @@
 | `lib/log.mjs` | 诊断落点：`$DSH_HOME/state/dsh-sandboxie-redirect/`，可用 `DSH_SBIE_LOG_DIR` 覆盖。**绝不写进包目录**——bundle 装在 profile 的 `node_modules`（可能直接来自 pnpm store）里。 |
 | `lib/naming.mjs` / `boxes.mjs` / `sbie.mjs` / `koffi.mjs` / `core.mjs` / `redirect.mjs` | 命名、沙盒操作、Sandboxie FFI、核心包加载、重定向拼装。 |
 | `lib/sbie-locate.mjs` | 找 Sandboxie 安装目录（注册表 → 常规目录 → `PATH` → 扫盘），与 `sbie.mjs` 的 `sbieDir()` 分开，因为这里的每个副作用都可注入、能离线单测。 |
+| `lib/dsh-locate.mjs` | 找 **DSH 自己的**安装目录（`process.resourcesPath` → `process.execPath` 上溯 → 卸载项 → 常规目录/`PATH`），供 `koffi.mjs` 定位 `koffi.node`。只 import Node 内置模块，见下方"DSH 安装位置"一条。 |
 | `cordis.patch.yml` | 本包的 **bundle 层**（`dsh.bundle.patch`）：禁用 stock sandbox 行、把 `copy-on-write` 合并进 `permission` 行的预设目录、插入本包。行按**包名**引用，不含绝对路径。 |
 | `bin/dsh-sbie-run.mjs` | 启动器（纯 Node 进程，持有 Sandboxie FFI 与 `--manage`）。 |
 | `tools/install.mjs` / `verify-box-binding.mjs` / `inspect-copies.mjs` | **手工通道**（把工作区拷进 `~/.dsh/plugins`）的安装/校验/清单工具，面向维护者；公开用户走 `dsh plugin add`。 |
@@ -33,6 +34,7 @@
 - 包声明 `dsh.bundle.patch: "./cordis.patch.yml"`，`files` **必须包含**该文件；`exports["."]` **必须**指向 `lib/provider.mjs`——bundle 行按包名插入，行名解析到的就是包的入口（历史上 `main` 指向 `lib/host.mjs`，那样 bundle 行会挂到错误的半边，沙箱 provider 根本不生效）。
 - 用户安装：`dsh plugin --profile <name> add @lone-wolf-akela/dsh-sandboxie-redirect`（也支持 `./目录`、`pnpm pack` 出的 tarball、`github:user/repo`）。`dsh plugin` 把包追加进 profile 的 `dsh.profile.bundles`，**不需要**手改 profile 文件。包名带 scope，所以 `publishConfig.access: "public"` 是必需的——带 scope 的包默认 private。
 - **包名出现在三个必须一致的地方**：`package.json` 的 `name`、`cordis.patch.yml` 插入行的 `name`、`lib/client.js` 里 `window.__ModuleLoader__.load({ id })` 的 id。改名前先看 `test/unit.mjs` 的对应断言。
+- **`bin` 的值不要写 `./` 前缀**：`@npmcli/package-json` 的 `secureAndUnixifyPath()` 会把它规范化掉（`./bin/x` → `bin/x`），随后 npm 在**每次** publish 时报 `"bin[dsh-sbie-run]" script name bin/dsh-sbie-run.mjs was invalid and removed`——它只是删掉了前缀，路径照样生效，但这条措辞会让人以为 bin 坏了（0.3.1 就白排查过一轮）。写 `bin/dsh-sbie-run.mjs` 即可，`test/unit.mjs` 钉住这个形式。
 - 开发回路：`dsh plugin --profile dev add ./` 会把当前 checkout link 进 profile；改 `lib/*.mjs` 后重启客户端即可，不必反复手工拷贝。
 - **手工通道**（`~/.dsh/plugins/…` + 绝对路径行）仍被 `test/validate-patch.mjs` 支持（它从 path 行反推包目录，所以两种形态都能校验），但不再是公开安装路径；旧的 `cordis.patch.yml.new` 模板已删除。
 - 层顺序：bundle 层（按 `dsh.profile.bundles` 顺序）→ profile 自己的 `cordis.patch.yml` → `$DSH_HOME/cordis.patch.yml` → `--patch`。越靠后越优先；patch **整行替换** `config`，不深合并——所以任何要"改一行里的一部分"的补丁都必须把整行交出来，本包因此用 `!!js` 交出算好的整份预设目录（见下条）。
@@ -66,6 +68,8 @@
 - **可编程入口**：`SbieDll_RunSandboxed`（stdcall，6 参数，`@24`）。`Start.exe` 是 GUI 子系统程序，拿不到 stdio 与退出码。
 - **安装目录不是固定路径，查找走 `lib/sbie-locate.mjs`**：顺序是 `DSH_SBIE_DIR` → 注册表 → 常规目录（`%ProgramFiles%\Sandboxie-Plus` 等，含写死的 `C:\Program Files\Sandboxie-Plus`）→ `PATH` 里名字带 sbie/sandboxie 的条目 → 扫盘。注册表里最权威的是 `HKLM\SYSTEM\CurrentControlSet\Services\SbieSvc` 的 `ImagePath`（**能建盒的安装必然注册了该服务**，所以它指向的就是插件必须用的那份；`SbieDrv` 的 `ImagePath` 与卸载项的 `InstallLocation` / `Inno Setup: App Path` 是补充）。注册表**先走 koffi/advapi32 的 `RegGetValueW`**（宽字符、无子进程、`REG_EXPAND_SZ` 由系统展开），koffi 不可用才退到 `reg.exe` 并按 `%NAME%` 自己展开。扫盘是最后一招且只做**一级**：常见父目录 + 各固定盘根，盘符用 koffi 的 `GetLogicalDrives`/`GetDriveTypeW` 取，**只扫 `DRIVE_FIXED`**（扫网络盘/空光驱会卡住）。判定标准仍是"该目录下有 `SbieDll.dll`"。不要退回"固定四路径"——那正是"装在非默认目录就报未安装"的根因。
 - **`SbieDll_RunSandboxed` 之外的第二入口**：`SbieIni.exe`（`sbieIni()`）改盒配置，走服务写 `Sandboxie.ini`，不需要管理员令牌。
+- **DSH 自己的安装位置也不假定（`lib/dsh-locate.mjs`）**：启动器要用的 `koffi.node` 随 DSH 装在 `<安装目录>\resources\app.asar.unpacked` 里，而启动器是**普通 Node 进程**（没有 `process.resourcesPath`）。顺序：`process.resourcesPath`（真在 Electron 内时）→ **从 `process.execPath` 逐级上溯**（宿主用应用自带运行时的 node 起启动器，这条路径本身就指回安装目录）→ 安装器的卸载项 → 常规目录（`%LOCALAPPDATA%\Programs` 与两个 `%ProgramFiles%` 拼写）→ `PATH` 里名字像 DeepSeek Harness 的条目。卸载项的键名是 **GUID**，没法按固定路径查，所以走 `reg.exe ... /s /f "DeepSeek Harness" /d` 搜 `DisplayName`，再从 `InstallLocation` / `DisplayIcon`（带 `,0` 图标下标）/ `UninstallString`（带 `/currentuser` 开关、可能带引号）里任一取出文件夹。判定"是安装目录"的凭据只有三个：`resources\app.asar`、`resources\app.asar.unpacked`、或 `DeepSeek Harness.exe` 存在。**不要退回写死的 `%LOCALAPPDATA%\Programs\DeepSeek Harness`**——那正是"DSH 装在别处就报 koffi.node not found"的根因（0.3.2 修的就是它）。`test/dsh-locate.mjs` 有专门的回归用例；并在真机上用"关掉注册表来源、只用 app 自带 node 跑 `loadKoffi()`"验证过仅靠上溯就能加载原生插件（系统 node 作负向对照）。
+- **`dsh-locate.mjs` 只能 import Node 内置模块**：`koffi.mjs` import 它，而 `sbie-locate.mjs`（经 `sbie.mjs`）import `koffi.mjs`，反向引用会成环；所以它内部那几个小工具（`expandEnvRefs` / `uniqueDirs` / 注册表行解析）是**有意重复**而不是复用 `sbie-locate.mjs` 的。
 - **stdio 不通**：进程由 `SbieSvc` 创建，`STARTUPINFOW` 里的标准句柄被忽略；需自建回传。命名管道不通（沙盒内进程连不上），**回环 TCP 可用**——本插件用回环 TCP + 长度前缀帧。
 - **命名**：`dsh_<形容词>_<名词>`，由工作区绝对路径（小写）经 64 位 FNV-1a 映射到 90×90 词表；冲突时按确定性候选序列顺延（`boxNameCandidates`），并据沙盒配置里的 `OpenFilePath` 判断归属。约束：盒名仅 `[A-Za-z0-9_]`、宽字符 ≤ 34。启动器也支持 `--mode read-only` 下的 `dshr_` 前缀，但 DSH 的只读预设走原生 ACL runner、不使用沙盒，`dshr_` 盒只会出现在手动以 `--mode read-only` 调用启动器时；历史遗留的 `Dsh_<8 位十六进制>` 盒仍被识别，可被 `--manage` 列出与清理。
 - **副本布局**：普通路径 `<沙盒根>\drive\<盘符>\<路径>`；用户目录下 `<沙盒根>\user\current\<相对路径>`。
@@ -78,6 +82,7 @@ node test\run-tests.mjs                       # 验收
 node test\soak.mjs 30                          # 稳定性/延迟
 node test\unit.mjs                             # 单元
 node test\sbie-locate.mjs                      # 安装目录查找（不需要 Sandboxie / 注册表 / Windows 也能跑）
+node test\dsh-locate.mjs                       # DSH 自身安装位置查找（同上，含真机 canary）
 node test\host-projection.mjs
 node test\validate-patch.mjs                   # 默认校验本仓库的 cordis.patch.yml（bundle 层）
 node test\validate-patch.mjs <某个 patch.yml>   # 也可校验 profile 补丁 / 手工通道

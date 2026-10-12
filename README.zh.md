@@ -41,6 +41,8 @@
 
 **装在哪儿都行，不需要配置。** 插件不假设 Sandboxie 在某个固定目录：它先读 Sandboxie 自己的注册表项（`SbieSvc` 服务的 `ImagePath` 最权威——能建沙盒的安装必然有它，其次是驱动服务与卸载项），再看 `%ProgramFiles%\Sandboxie-Plus` 等常规位置与 `PATH`，最后才按名字扫一遍常见父目录与各固定磁盘根目录，找含 `SbieDll.dll` 的文件夹。装在别的盘、用户目录、便携目录都可以。只有全部落空时才会报 "not installed"，此时用 `DSH_SBIE_DIR` 直接指定（见[环境变量](#环境变量)）。
 
+**DSH 自己的安装目录同样不假定。** 启动器要用的 `koffi.node` 是随 DSH 一起装在它 `resources\app.asar.unpacked` 里的，而启动器是普通 Node 进程（没有 `process.resourcesPath`）。插件会自己定位 DSH：先看运行启动器的那个 node（桌面应用自带的运行时就在安装目录里，这条路径本身就指回安装位置），再看安装器留下的卸载项，最后才是常规目录与 `PATH`。DSH 装在别的盘也能正常工作。
+
 本包是 DSH 的 **bundle**（自带配置层），装进去就自动挂载，**不需要手改 profile 文件**。
 
 ```powershell
@@ -129,7 +131,7 @@ node bin\dsh-sbie-run.mjs --manage delete-box <沙盒名>      # 删除指定沙
 | `DSH_SBIE_ROOT` | 覆盖沙盒根。通常不需要：Sandboxie 配置的 `FileRootPath` 会被自动跟随。默认 `%SystemDrive%\Sandbox\%USERNAME%`。 |
 | `DSH_SBIE_LOG_DIR` | 诊断日志目录。默认 `$DSH_HOME/state/dsh-sandboxie-redirect`。 |
 | `DSH_SBIE_INI` | 要读取的 Sandboxie 配置文件。默认 `%SystemDrive%\Windows\Sandboxie.ini`。 |
-| `DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT` | 启动器要用的 `koffi.node`（或含它的目录），当找不到应用自带的那份时使用。 |
+| `DSH_SBIE_KOFFI` / `DSH_SBIE_KOFFI_ROOT` | 启动器要用的 `koffi.node`（或含它的目录）。通常不需要：DSH 的安装位置会被自动定位（见[安装](#安装)）。 |
 | `DSH_SBIE_BOX` / `DSH_SANDBOX_ROOT` | **由插件在命令内注入**；"我在哪个盒里"以它们为准，永远不要用工作区路径去推导盒名。 |
 
 诊断文件：上述日志目录下的 `provider.log`、`host.log`、`tool.log`。`host.log` 上限 512 KB，只记状态迁移。

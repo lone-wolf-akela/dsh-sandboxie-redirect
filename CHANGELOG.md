@@ -3,6 +3,32 @@
 Notable changes per release. The format is loose; the version numbers are what
 the DSH compatibility gate reads.
 
+## 0.3.2 — 2026-10-13
+
+**DeepSeek Harness installation lookup**
+
+- The launcher no longer assumes DSH is installed in
+  `%LOCALAPPDATA%\Programs\DeepSeek Harness`. `koffi.node` ships *inside* the
+  installation, so a relocated DSH failed every command with "koffi native addon
+  not found". The new `lib/dsh-locate.mjs` finds the installation instead: the
+  interpreter's own path walked upwards (the host starts the launcher with the
+  Node the app ships, so that path points back at the installation), then the
+  installer's uninstall entry — `InstallLocation`, `DisplayIcon` and
+  `UninstallString` are all accepted, and it is found by display name because
+  the key is a GUID — then the conventional folders and `PATH`.
+- `DSH_SBIE_KOFFI` and `DSH_SBIE_KOFFI_ROOT` remain the explicit overrides, and
+  the failure message now says what it looked for and where.
+- New `test/dsh-locate.mjs` (18 offline checks) pins the source order and
+  includes a regression case for an installation outside every default folder.
+
+**Packaging**
+
+- `bin` no longer carries a leading `./`. npm's `@npmcli/package-json`
+  normalizes that away and then reports `"bin[dsh-sbie-run]" script name
+  bin/dsh-sbie-run.mjs was invalid and removed` on every publish; the emitted
+  path was already the normalized one, so this removes a misleading warning and
+  nothing else. `test/unit.mjs` pins the form.
+
 ## 0.3.1 — 2026-10-12
 
 **Sandboxie installation lookup**
