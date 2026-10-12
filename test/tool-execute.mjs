@@ -263,6 +263,50 @@ await checkAsync("mode clear runs the launcher's --manage clean in a child proce
   assert.match(value.note, /Nothing to clear|The copies are gone/, value.note);
 });
 
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+/** `render` is pure, so each action's text can be pinned without touching the world. */
+function renderedText(value) {
+  const parts = config.output.render({}, value);
+  assert.equal(parts.length, 1, "render returns exactly one part");
+  assert.equal(parts[0].type, "text");
+  return parts[0].text;
+}
+
+check("each action gets its own head line", () => {
+  const status = renderedText({ action: "status", workspace: CANONICAL, copies: [], cleared: [], note: "detail" });
+  assert.ok(status.startsWith(`Session projection state for ${CANONICAL}.`), status);
+  assert.ok(!status.includes("found."), `a status query must not answer in inspect's wording: ${status}`);
+  assert.ok(status.endsWith("detail"), "the projection detail must survive rendering");
+
+  const inspect = renderedText({
+    action: "inspect",
+    workspace: CANONICAL,
+    copies: [{ box: BOX, root: COPY_ROOT, files: 2, bytes: 1536, truncated: false }],
+    cleared: [],
+    note: "n"
+  });
+  assert.ok(inspect.startsWith(`Sandbox copies for ${CANONICAL}: 1 found.`), inspect);
+  assert.match(inspect, new RegExp(`- ${BOX}: 2 file\\(s\\), 1\\.5 KB at `), inspect);
+
+  const empty = renderedText({ action: "inspect", workspace: CANONICAL, copies: [], cleared: [], note: "n" });
+  assert.ok(empty.startsWith(`Sandbox copies for ${CANONICAL}: 0 found.`), empty);
+
+  const cleared = renderedText({ action: "clear", workspace: CANONICAL, copies: [], cleared: [BOX], note: "n" });
+  assert.ok(cleared.startsWith(`Cleared 1 sandbox copy/copies for ${CANONICAL}.`), cleared);
+
+  const truncated = renderedText({
+    action: "inspect",
+    workspace: CANONICAL,
+    copies: [{ box: BOX, root: COPY_ROOT, files: 20000, bytes: 1024, truncated: true }],
+    cleared: [],
+    note: "n"
+  });
+  assert.match(truncated, /\(counting stopped early\)/, truncated);
+});
+
 /** `execute` throws synchronously on its refusal paths and resolves otherwise; accept both. */
 async function expectFailure(fn, pattern) {
   try {

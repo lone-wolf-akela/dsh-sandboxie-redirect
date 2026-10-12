@@ -3,6 +3,19 @@
 Notable changes per release. The format is loose; the version numbers are what
 the DSH compatibility gate reads.
 
+## 0.3.4 — 2026-10-13
+
+**`sandbox_clear` mode `status` no longer answers in `inspect`'s words**
+
+- `render` gave every action except `clear` the inspect head line, so a status
+  query read `Sandbox copies for <workspace>: 0 found.` — which looks like "this
+  workspace has no copy" when the call says nothing about copies at all. `status`
+  now has its own head, `Session projection state for <workspace>.`, above the
+  projection detail that actually carries the information.
+- `test/tool-execute.mjs` pins the rendered text of all three actions, plus the
+  empty and truncated copy lines, so the wording cannot silently fall through
+  again.
+
 ## 0.3.3 — 2026-10-13
 
 **`sandbox_clear` mode `status` never worked**
