@@ -10,6 +10,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { boxNameCandidates, boxNameFor, boxRoot, canonicalWorkspace, expandFileRootPath, fnv1a64, isManagedBoxName, resolveBoxRoot, sbieSandboxRoot } from "../lib/naming.mjs";
 import { REDIRECT_PRESET, RUNNER_FATAL_SIGNATURE, isRedirectPresetState, redirectArgv, redirectPolicyNote, redirectWrap, resolveNodePath } from "../lib/redirect.mjs";
+import { normalizeSystemDrive, restoreSandboxieEnvironment, systemDriveFromEnv } from "../lib/sandbox-env.mjs";
+import { boxSettings } from "../lib/boxes.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginDir = path.dirname(here);
@@ -279,6 +281,40 @@ check("the model note names the workspace and the copy, and warns about the file
   assert.ok(note.includes(JSON.stringify(expectedRoot)), `must name the copy root ${expectedRoot}`);
   assert.match(note, /shell command/);
   assert.match(note, /refuse writes outside the workspace/);
+});
+
+check("a scrubbed environment still yields the system drive Sandboxie expands profile paths with", () => {
+  assert.equal(normalizeSystemDrive("C:"), "C:");
+  assert.equal(normalizeSystemDrive("d:"), "D:");
+  for (const bad of ["C:\\", "CD:", "", null, undefined, 42]) assert.equal(normalizeSystemDrive(bad), undefined, String(bad));
+
+  assert.equal(systemDriveFromEnv({ SystemDrive: "C:" }), "C:");
+  assert.equal(systemDriveFromEnv({ SystemRoot: "D:\\Windows" }), "D:");
+  assert.equal(systemDriveFromEnv({ WINDIR: "E:\\WINDOWS" }), "E:");
+  assert.equal(systemDriveFromEnv({ Path: "x" }, "F:\\Windows"), "F:");
+  assert.equal(systemDriveFromEnv({ Path: "x" }, () => "G:\\Windows"), "G:");
+  assert.match(systemDriveFromEnv({}), /^[A-Z]:$/, "the last resort is Node's own drive, never nothing");
+});
+
+check("the launcher restores SystemDrive for Sandboxie without widening the command's environment", () => {
+  const callerEnv = { PATH: "C:\\Windows", TEMP: "C:\\Temp" };
+  const launcherEnv = { ...callerEnv };
+  const restored = restoreSandboxieEnvironment(launcherEnv, { windowsDirectory: "D:\\Windows" });
+  assert.deepEqual(restored, { SystemDrive: "D:" });
+  assert.equal(launcherEnv.SystemDrive, "D:", "Sandboxie sees the drive before it starts the boxed relay");
+  assert.deepEqual(callerEnv, { PATH: "C:\\Windows", TEMP: "C:\\Temp" }, "the command's environment snapshot stays scrubbed");
+  assert.equal(restoreSandboxieEnvironment({ SystemDrive: "C:" }), undefined, "an existing drive is not rewritten");
+  assert.equal(restoreSandboxieEnvironment({ SystemDrive: "c:" }), undefined);
+});
+
+check("managed boxes classify the DSH executable as none so Sandboxie injects no Chromium flags", () => {
+  // Sandboxie's default CustomChromiumFlags (--disable-features=PrintCompositorLPAC)
+  // is injected into any Electron main process. In Electron's Node mode the PTC
+  // runtime parses it as a Node option and exits 9, so every program would die.
+  for (const mode of ["workspace-write", "read-only"]) {
+    const settings = new Map(boxSettings("C:\\ws", mode));
+    assert.equal(settings.get("SpecialImage"), "none,DeepSeek Harness.exe", mode);
+  }
 });
 
 check("the plugin ships the files the profile rows point at", () => {

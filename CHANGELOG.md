@@ -3,6 +3,60 @@
 Notable changes per release. The format is loose; the version numbers are what
 the DSH compatibility gate reads.
 
+## 0.3.5 — 2026-11-14
+
+**Programmatic tool calling + copy-on-write: every command failed**
+
+- PTC spawns its runtime with a deliberately scrubbed environment — only
+  `PATH`, `PATHEXT`, `SYSTEMROOT`, `WINDIR`, `TEMP` and `TMP`. The launcher
+  inherits it, and Sandboxie expands its `ProfileList` values
+  (`%SystemDrive%\ProgramData`, `%SystemDrive%\Users\…`) with
+  `ExpandEnvironmentStrings`, which only sees the *caller's* environment. Without
+  `SystemDrive` the expansion fails, the boxed relay dies during initialization
+  (`SBIE2306 Could not locate user directory: [C000003B / 33]` followed by
+  `SBIE2304`) and the launcher could only report `the boxed relay did not connect
+  within 15000 ms` — so *every* tool call in the session failed, including a
+  program that made none.
+- `lib/sandbox-env.mjs` now restores `SystemDrive` into the launcher's own
+  process environment before the boxed relay is started, deriving it from the
+  caller's environment, from `GetWindowsDirectoryW`, or from Node's own drive —
+  in that order. The command's spawn specification is built from a snapshot taken
+  *before* the restoration, so the boxed command still receives exactly the
+  environment its caller chose; `test/unit.mjs` pins both halves.
+- Reproduced offline by spawning the launcher through `CreateProcessW` with the
+  exact six-variable environment and no `SystemDrive`: the launcher timed out and
+  the boxed `node.exe` reported SBIE2306/SBIE2304. With the fix the same
+  invocation runs the command and returns its exit code.
+
+**PTC runtime: Sandboxie injected browser flags into Electron's Node mode**
+
+- Sandboxie classifies Electron images (DSH's executable included) as Chromium
+  and, for every non-child process of that image, prepends its
+  `CustomChromiumFlags` — by default `--disable-features=PrintCompositorLPAC` —
+  to the command line. The PTC runtime is Electron started with
+  `ELECTRON_RUN_AS_NODE=1`, so Node parses that browser flag as one of its own
+  options and exits 9 with `bad option: --disable-features=PrintCompositorLPAC`
+  before the program's first line runs.
+- Managed boxes now carry `SpecialImage=none,DeepSeek Harness.exe`, which
+  suppresses the classification for DSH's own executable only; other Chromium
+  applications in the same box keep Sandboxie's compatibility flags. Boxes
+  created by older versions are repaired on the next launch.
+- `test/unit.mjs` pins the box setting for both access modes.
+
+**PTC runtime: the inherited control channel never reached the box**
+
+- DSH hands the confined process a control channel on fd 7 (`SUBPROCESS_CONTROL_FD`,
+  an `overlapped` named pipe marked by `DSH_SUBPROCESS_CONTROL=pipe`). SbieSvc
+  ignores inherited handles, so the boxed relay started the command with only
+  stdin/stdout/stderr; the PTC runtime then died at startup with
+  `ERR_INVALID_FD_TYPE: Unsupported fd type: UNKNOWN` from
+  `openInheritedControlChannel()`.
+- The launcher now opens fd 7 itself, forwards its bytes over the relay's TCP
+  channel (new `CONTROL` / `CONTROL_EOF` frames) and the relay re-creates an
+  `overlapped` fd 7 for the boxed child. The command's environment is unchanged.
+- `test/run-tests.mjs` case 21 pins the roundtrip through a real box; case 20
+  remains the scrubbed-environment regression.
+
 ## 0.3.4 — 2026-10-13
 
 **`sandbox_clear` mode `status` no longer answers in `inspect`'s words**

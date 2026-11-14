@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { boxNameFor, boxRoot } from "../lib/boxes.mjs";
+import { loadKoffi } from "../lib/koffi.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginDir = path.dirname(here);
@@ -99,6 +100,93 @@ function launch({ workspace = WORKSPACE, mode = "workspace-write", command, stdi
 
 /** How many launches needed the second relay attempt — the SBIE2308-sensitive path. */
 let RELAY_RETRIES = 0;
+
+/**
+ * Spawn the launcher the way DSH does when the child needs the inherited
+ * control channel: an `overlapped` named pipe at fd 7 (DSH's
+ * `SUBPROCESS_CONTROL_FD`) plus the `DSH_SUBPROCESS_CONTROL=pipe` marker.
+ * Bytes written there must reach the boxed child and come back.
+ */
+function launchWithControl({ command, payload, timeoutMs = 45000 }) {
+  return new Promise((resolve) => {
+    const stdio = ["ignore", "pipe", "pipe", "ignore", "ignore", "ignore", "ignore", "overlapped"];
+    const env = { ...process.env, DSH_SUBPROCESS_CONTROL: "pipe" };
+    const child = spawn(NODE, [launcher, ...profileArgs(WORKSPACE, "workspace-write"), "--", ...command], {
+      cwd: WORKSPACE,
+      env,
+      stdio,
+      windowsHide: true
+    });
+    let stdout = "";
+    let stderr = "";
+    let received = "";
+    child.stdout.on("data", (d) => (stdout += d.toString("utf8")));
+    child.stderr.on("data", (d) => (stderr += d.toString("utf8")));
+    const control = child.stdio[7];
+    const timer = setTimeout(() => child.kill(), timeoutMs);
+    control.on("data", (chunk) => {
+      received += chunk.toString("utf8");
+      if (received.includes(`echo:${payload}`)) control.end();
+    });
+    control.on("error", () => {
+      /* the launcher may close its side first; the exit code still settles */
+    });
+    control.write(`${payload}\n`);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr, received });
+    });
+  });
+}
+
+/**
+ * Spawn the launcher with an *exactly* supplied environment block.
+ *
+ * Node's own `spawn` re-adds `SystemDrive`, `SystemRoot`, `USERPROFILE` and
+ * friends on Windows even when the caller passes a scrubbed environment, which
+ * would hide the PTC-shaped failure this case exists to catch. `CreateProcessW`
+ * takes the block verbatim, so only this path can reproduce it.
+ */
+function launchScrubbed(env, command, cwd = WORKSPACE) {
+  const koffi = loadKoffi();
+  const kernel32 = koffi.load("kernel32.dll");
+  const STARTUPINFOW = koffi.struct("STARTUPINFOW", {
+    cb: "uint32", lpReserved: "void *", lpDesktop: "void *", lpTitle: "void *",
+    dwX: "uint32", dwY: "uint32", dwXSize: "uint32", dwYSize: "uint32",
+    dwXCountChars: "uint32", dwYCountChars: "uint32", dwFillAttribute: "uint32",
+    dwFlags: "uint32", wShowWindow: "uint16", cbReserved2: "uint16", lpReserved2: "void *",
+    hStdInput: "void *", hStdOutput: "void *", hStdError: "void *"
+  });
+  const PROCESS_INFORMATION = koffi.struct("PROCESS_INFORMATION", {
+    hProcess: "void *", hThread: "void *", dwProcessId: "uint32", dwThreadId: "uint32"
+  });
+  const createProcess = kernel32.func("CreateProcessW", "bool", [
+    "void *", "void *", "void *", "void *", "bool", "uint32", "void *", "void *",
+    koffi.inout(koffi.pointer(STARTUPINFOW)), koffi.out(koffi.pointer(PROCESS_INFORMATION))
+  ]);
+  const waitForSingleObject = kernel32.func("WaitForSingleObject", "uint32", ["void *", "uint32"]);
+  const getExitCodeProcess = kernel32.func("GetExitCodeProcess", "bool", ["void *", koffi.out(koffi.pointer("uint32"))]);
+  const closeHandle = kernel32.func("CloseHandle", "bool", ["void *"]);
+
+  const quote = (value) => '"' + value.replaceAll('"', '\\"') + '"';
+  const commandLine = [NODE, launcher, ...profileArgs(cwd, "workspace-write"), "--", ...command].map(quote).join(" ");
+  const entries = Object.keys(env).filter((key) => env[key] !== undefined)
+    .sort((a, b) => (a.toUpperCase() < b.toUpperCase() ? -1 : 1))
+    .map((key) => key + "=" + env[key]);
+  const environment = Buffer.from(entries.join("\0") + "\0\0", "utf16le");
+  const startupInfo = { cb: 104, lpReserved: null, lpDesktop: null, lpTitle: null, dwX: 0, dwY: 0, dwXSize: 0, dwYSize: 0, dwXCountChars: 0, dwYCountChars: 0, dwFillAttribute: 0, dwFlags: 0, wShowWindow: 0, cbReserved2: 0, lpReserved2: null, hStdInput: null, hStdOutput: null, hStdError: null };
+  const processInfo = {};
+  const CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+  if (!createProcess(null, Buffer.from(commandLine + "\0", "utf16le"), null, null, false, CREATE_UNICODE_ENVIRONMENT, environment, Buffer.from(cwd + "\0", "utf16le"), startupInfo, processInfo)) {
+    throw new Error("CreateProcessW failed for the scrubbed launch");
+  }
+  waitForSingleObject(processInfo.hProcess, 120000);
+  const exitCode = [0];
+  getExitCodeProcess(processInfo.hProcess, exitCode);
+  closeHandle(processInfo.hProcess);
+  closeHandle(processInfo.hThread);
+  return exitCode[0];
+}
 
 async function test(name, body) {
   current = { name, ok: false, detail: "" };
@@ -356,6 +444,42 @@ await test("19 C:\\Windows\\Temp modify is refused, host file still intact", asy
   need(fs.readFileSync(real, "utf8").includes("ORIGINAL"), "the real file was modified");
   const copy = boxPathOf(real);
   return run.code === 0 ? "write accepted, redirected to the copy" : `write refused (exit ${run.code}), host intact`;
+});
+
+// 20 — the programmatic-tool-calling shape: the launcher is handed ONLY the six
+// startup variables DSH's PTC runtime keeps (PATH, PATHEXT, SYSTEMROOT, WINDIR,
+// TEMP, TMP). Sandboxie expands ProfileList's %SystemDrive%\... values with the
+// caller's environment, so the missing SystemDrive used to abort the boxed relay
+// with SBIE2306 [C000003B / 33] / SBIE2304 and every command timed out.
+await test("20 a scrubbed launcher environment still starts the box", async () => {
+  const env = {};
+  for (const key of ["PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP"]) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  const code = launchScrubbed(env, [NODE, "-e", "process.exit(9)"]);
+  need(code === 9, `expected the command's exit code 9, got ${code}`);
+  return "launcher started with only the six startup variables";
+});
+
+// 21 — DSH hands the launcher a control channel on fd 7; SbieSvc cannot pass
+// inherited handles into the box, so the launcher must forward it over the relay
+// channel and the relay must re-create an `overlapped` fd 7 for the child. The
+// PTC runtime opens exactly that descriptor on startup.
+await test("21 the inherited fd 7 control channel reaches a boxed child", async () => {
+  fs.mkdirSync(scratch, { recursive: true });
+  const probe = path.join(scratch, "fd7-probe.mjs");
+  fs.writeFileSync(probe, [
+    'import net from "node:net";',
+    'const channel = new net.Socket({ fd: 7, readable: true, writable: true, allowHalfOpen: true });',
+    'channel.setEncoding("utf8");',
+    'channel.on("data", (text) => channel.write("echo:" + text));',
+    'channel.write("probe-ready\\n");'
+  ].join("\n"));
+  const payload = `ping-${rnd()}`;
+  const run = await launchWithControl({ command: [NODE, probe], payload });
+  need(run.received.includes(`echo:${payload}`), `no echo through fd 7: ${JSON.stringify(run.received)} stderr=${run.stderr}`);
+  need(run.code === 0 || run.code === null, `unexpected exit ${run.code}`);
+  return "fd 7 roundtrip ok";
 });
 
 // ---------------------------------------------------------------------------
