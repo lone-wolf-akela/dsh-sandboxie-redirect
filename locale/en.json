@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Sandboxie copy-on-write",
+    "description": "Runs shell commands inside a per-workspace Sandboxie box: writes outside the workspace land in a throwaway copy, and the real disk is left untouched."
+  }
+}

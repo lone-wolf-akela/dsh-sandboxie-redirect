@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Sandboxie 写时复制",
+    "description": "在按工作区创建的 Sandboxie 沙盒中运行 shell 命令：工作区之外的写入只落在一次性副本里，真实磁盘不受影响。"
+  }
+}

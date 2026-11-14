@@ -3,6 +3,23 @@
 Notable changes per release. The format is loose; the version numbers are what
 the DSH compatibility gate reads.
 
+## 0.3.6 — 2026-11-14
+
+**Plugin manager shows a name and an icon**
+
+- The plugin was listed by its technical package name and without an icon.
+  It now ships a localized display title/description (`locale/en.json`,
+  `locale/zh.json`, each with `meta.title` and `meta.description`) and an
+  `icon.svg` declared as `package.json.icon`.
+- DSH's plugin metadata reader resolves `<pkg>/locale/en.json` and the icon
+  through the package's `exports` map, so `./locale/*.json` and `./icon` are
+  exported and `icon.svg`/`locale` are in `files`. `test/unit.mjs` installs a
+  throwaway copy and resolves both subpaths through Node's resolver, so a broken
+  exports map fails the suite instead of silently falling back to the package
+  name.
+- The icon is a copy-on-write motif: a writable copy in front of the untouched
+  original, with a confinement badge.
+
 ## 0.3.5 — 2026-11-14
 
 **Programmatic tool calling + copy-on-write: every command failed**

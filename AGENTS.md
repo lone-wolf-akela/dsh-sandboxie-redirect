@@ -27,6 +27,7 @@
 - **为什么是"预设"而不是第四个模式字面量**：三个模式字面量硬编码在四个核心包里——`dsh-sandbox-policy`（`SANDBOX_MODES` 与 `sandboxMode` 投影 schema）、`dsh-permission-presets`（preset 的 `sandbox` 校验与目录）、`dsh-client-ui-permission-presets`（只对三个已知值给内置图标/文案）、`dsh-sandbox`（`WIDER_MODES`/`writableRoots`）。其中 `SANDBOX_MODES` 在模块求值时被按值读入，`writableRoots` 又被文件围栏直接 import，所以"加第四个枚举值"必须改 asar 或替换多个插件行。改用预设身份区分，这些全都不用动。代价：拒绝文案仍写 "workspace-write"（对文件工具而言确实如此），属文案一致、非行为不一致。
 - **客户端半边不是 ES module**：`window.__ModuleLoader__.load({ id, factory: (require) => … })`，用 CJS 风格 `require("react")`；`id` 必须等于包名。发现方式为 `package.json` 的 `dsh.client`（`platform: "web"` + `inject`）与 `exports["./client"]`。
 - **客户端改动与插件代码改动**：profile 是 **live** 的——改 `cordis.patch.yml` 后宿主会在数秒内重新合成并加载（实测：写入补丁 2 秒后 `provider.log` 出现 `provider constructed`，`sandbox` 行转为 `inactive`，浏览器半边的 slot 占用者也在同一次重载后出现）。但 `lib/*.mjs` **代码**改动不会被重新求值，仍需重启客户端。副作用：`tools/install.mjs` 的 `rm`+`cp` 序列在 live 宿主下不是原子的，宿主可能在复制途中加载到半个包。
+- **插件管理页的名称/图标来自 `package.json.icon` 与导出的 `locale/*.json`**：宿主 `dsh-app-boot` 的 `readPluginMeta()` 不执行插件代码，而是用 Node 解析器读 `<specifier>/locale/en.json`（再读同目录其它语言）、`<specifier>/package.json` 的 `icon`（相对路径，≤256 KiB，SVG/PNG/JPEG/WebP），或 `<specifier>/icon` 导出。因此这些资源必须出现在 `exports`（`./locale/*.json`、`./icon`）与 `files` 里；缺了只会静默退回技术包名/无图标。语言文件名即语言 id，内容形如 `{ "meta": { "title": …, "description": … } }`。`test/unit.mjs` 用临时安装副本走一遍 Node 解析，钉住 exports 映射。
 - **核心包只能经 `core.mjs` 的 `importCore(specifier)` 加载**（`createRequire` 锚定 `app.asar/dsh/node_modules` 再 `import(fileURL)`）；路径挂载插件里的裸 specifier 不解析。
 
 ## 分发包形态（bundle）
@@ -109,7 +110,7 @@ node test\validate-patch.mjs <某个 patch.yml>   # 也可校验 profile 补丁 
 ## 发布清单
 
 1. `package.json` 版本号 + `CHANGELOG.md`（写清日期）。
-2. `npm test` 全绿；`npm run pack:check` 只应看到 `lib bin cordis.patch.yml README(×2) CHANGELOG LICENSE package.json`——tests / tools / probe / AGENTS / `CONTRIBUTING` / `SECURITY` 都不进包。
+2. `npm test` 全绿；`npm run pack:check` 只应看到 `lib bin icon.svg locale cordis.patch.yml README(×2) CHANGELOG LICENSE package.json`——tests / tools / probe / AGENTS / `CONTRIBUTING` / `SECURITY` 都不进包。
 3. 提交并推送，打**签名标签** `git tag -s vX.Y.Z`（本机 `commit.gpgsign=true`，历史是签名的）。
 4. `npm publish`：包名带 scope，`publishConfig.access=public` 已在包里；开了 2FA 会要一次性验证码。
 5. **pnpm 11 的 `minimumReleaseAge` 会拦住发布不足 24 小时的新版本**：实测 `dsh plugin add` 会自动往 profile 的 `pnpm-workspace.yaml` 写一条 `minimumReleaseAgeExclude` 才放行；用户直接 `pnpm add` 需自行放行。

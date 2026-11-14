@@ -6,6 +6,8 @@
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { boxNameCandidates, boxNameFor, boxRoot, canonicalWorkspace, expandFileRootPath, fnv1a64, isManagedBoxName, resolveBoxRoot, sbieSandboxRoot } from "../lib/naming.mjs";
@@ -314,6 +316,46 @@ check("managed boxes classify the DSH executable as none so Sandboxie injects no
   for (const mode of ["workspace-write", "read-only"]) {
     const settings = new Map(boxSettings("C:\\ws", mode));
     assert.equal(settings.get("SpecialImage"), "none,DeepSeek Harness.exe", mode);
+  }
+});
+
+check("plugin manager metadata: icon and localized title resolve through package exports", () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(pluginDir, "package.json"), "utf8"));
+  assert.equal(manifest.icon, "icon.svg", "package.json.icon is what readPluginMeta looks for");
+  assert.equal(manifest.exports["./icon"], "./icon.svg");
+  assert.equal(manifest.exports["./locale/*.json"], "./locale/*.json");
+  assert.ok(manifest.exports["./package.json"] !== undefined, "the manifest itself must stay resolvable");
+  for (const rel of ["icon.svg", "locale/en.json", "locale/zh.json"]) {
+    assert.ok(
+      manifest.files.some((entry) => rel === entry || rel.startsWith(entry + "/")),
+      `${rel} is not shipped by package.json files`
+    );
+  }
+
+  // readPluginMeta resolves these subpaths through Node's resolver, so prove the
+  // exports map works from a throwaway installation before publishing.
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "dsh-plugin-meta-"));
+  try {
+    const packageCopy = path.join(temp, "node_modules", ...manifest.name.split("/"));
+    for (const rel of ["package.json", "icon.svg", "locale/en.json", "locale/zh.json"]) {
+      fs.mkdirSync(path.dirname(path.join(packageCopy, rel)), { recursive: true });
+      fs.copyFileSync(path.join(pluginDir, rel), path.join(packageCopy, rel));
+    }
+    const resolve = createRequire(path.join(temp, "resolve.cjs"));
+    const iconPath = resolve.resolve(`${manifest.name}/icon`);
+    assert.equal(path.resolve(iconPath), path.resolve(packageCopy, "icon.svg"));
+    assert.equal(path.extname(iconPath), ".svg");
+    assert.ok(fs.statSync(iconPath).size <= 256 * 1024, "the icon exceeds the plugin manager's 256 KiB limit");
+    for (const language of ["en", "zh"]) {
+      const localePath = resolve.resolve(`${manifest.name}/locale/${language}.json`);
+      const meta = JSON.parse(fs.readFileSync(localePath, "utf8")).meta;
+      assert.equal(typeof meta.title, "string", `${language}: meta.title`);
+      assert.ok(meta.title.trim().length > 0, `${language}: meta.title is empty`);
+      assert.equal(typeof meta.description, "string", `${language}: meta.description`);
+      assert.ok(meta.description.trim().length > 0, `${language}: meta.description is empty`);
+    }
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
   }
 });
 
