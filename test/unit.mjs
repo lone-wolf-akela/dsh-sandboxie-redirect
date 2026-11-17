@@ -11,7 +11,23 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { boxNameCandidates, boxNameFor, boxRoot, canonicalWorkspace, expandFileRootPath, fnv1a64, isManagedBoxName, resolveBoxRoot, sbieSandboxRoot } from "../lib/naming.mjs";
-import { REDIRECT_PRESET, RUNNER_FATAL_SIGNATURE, isRedirectPresetState, redirectArgv, redirectPolicyNote, redirectWrap, resolveNodePath } from "../lib/redirect.mjs";
+import {
+  DELEGATION_ORIGIN,
+  MAX_DELEGATION_DEPTH,
+  REDIRECT_PRESET,
+  RUNNER_FATAL_SIGNATURE,
+  SELECTION_COPY_ON_WRITE,
+  SELECTION_INHERIT,
+  SELECTION_OTHER,
+  copyOnWriteSource,
+  delegatingSessionId,
+  isRedirectPresetState,
+  redirectArgv,
+  redirectPolicyNote,
+  redirectWrap,
+  resolveNodePath,
+  selectionKind
+} from "../lib/redirect.mjs";
 import { normalizeSystemDrive, restoreSandboxieEnvironment, systemDriveFromEnv } from "../lib/sandbox-env.mjs";
 import { boxSettings } from "../lib/boxes.mjs";
 
@@ -39,6 +55,91 @@ check("only an exact preset match selects copy-on-write", () => {
   for (const bad of [{ preset: "workspace-write" }, { preset: "custom" }, { preset: null }, {}, undefined, "copy-on-write"]) {
     assert.equal(isRedirectPresetState(bad), false, `should reject ${JSON.stringify(bad)}`);
   }
+});
+
+check("selectionKind separates 'nothing selected' from 'another preset, on purpose'", () => {
+  assert.equal(DELEGATION_ORIGIN, "subagent", "the harness's durable delegation marker");
+  assert.equal(selectionKind({ preset: REDIRECT_PRESET }), SELECTION_COPY_ON_WRITE);
+  // The inheritable case is a session with NO preset event: that is exactly what
+  // the harness leaves a delegated child with (it seeds only auto/full access).
+  for (const empty of [{ preset: null }, {}, undefined, null]) {
+    assert.equal(selectionKind(empty), SELECTION_INHERIT, `${JSON.stringify(empty)} must stay inheritable`);
+  }
+  for (const other of [{ preset: "workspace-write" }, { preset: "read-only" }, { preset: "auto" }, { preset: "custom" }]) {
+    assert.equal(selectionKind(other), SELECTION_OTHER, `an explicit ${other.preset} selection must not be overridden`);
+  }
+});
+
+check("only a delegated session inherits, and only along its own delegating chain", () => {
+  assert.equal(delegatingSessionId({ header: { origin: "subagent", parentSession: "p" } }), "p");
+  assert.equal(delegatingSessionId({ header: { parentSession: "p" } }), undefined, "origin gates inheritance");
+  assert.equal(delegatingSessionId({ header: { origin: "subagent" } }), undefined);
+  assert.equal(delegatingSessionId({ header: { origin: "subagent", parentSession: "" } }), undefined);
+  assert.equal(delegatingSessionId(undefined), undefined);
+
+  const root = { id: "root", header: { id: "root" } };
+  const child = { id: "child", header: { id: "child", origin: "subagent", parentSession: "root" } };
+  const grandchild = { id: "g", header: { id: "g", origin: "subagent", parentSession: "child" } };
+  const byId = new Map([root, child, grandchild].map((session) => [session.id, session]));
+  const states = new Map([["root", { preset: REDIRECT_PRESET }], ["child", { preset: null }], ["g", { preset: null }]]);
+  const options = { selectionOf: (session) => selectionKind(states.get(session.id)), parentOf: (id) => byId.get(id) };
+
+  assert.equal(copyOnWriteSource(root, options), root, "the selecting session is its own source");
+  assert.equal(copyOnWriteSource(child, options), root, "a subagent inherits the preset from the session that delegated it");
+  assert.equal(copyOnWriteSource(grandchild, options), root, "…and so does a subagent's subagent");
+});
+
+check("inheritance never overrides an explicit preset and never invents one", () => {
+  const root = { id: "root", header: { id: "root" } };
+  const child = { id: "child", header: { id: "child", origin: "subagent", parentSession: "root" } };
+  const byId = new Map([[root.id, root], [child.id, child]]);
+  const run = (childState, rootState) =>
+    copyOnWriteSource(child, {
+      selectionOf: (session) => selectionKind(session.id === "child" ? childState : rootState),
+      parentOf: (id) => byId.get(id)
+    });
+
+  assert.equal(run({ preset: "workspace-write" }, { preset: REDIRECT_PRESET }), undefined, "an explicit choice wins");
+  assert.equal(run({ preset: null }, { preset: "workspace-write" }), undefined, "a stock parent contributes nothing");
+  assert.equal(run({ preset: null }, { preset: null }), undefined);
+
+  const orphan = { id: "orphan", header: { id: "orphan", origin: "subagent", parentSession: "gone" } };
+  assert.equal(
+    copyOnWriteSource(orphan, { selectionOf: () => SELECTION_INHERIT, parentOf: () => undefined }),
+    undefined,
+    "a parent that is no longer resident cannot authorise anything"
+  );
+  const notDelegated = { id: "n", header: { id: "n", parentSession: "root" } };
+  assert.equal(
+    copyOnWriteSource(notDelegated, { selectionOf: () => SELECTION_INHERIT, parentOf: (id) => byId.get(id) }),
+    undefined,
+    "a parentSession without origin subagent is lineage, not delegation"
+  );
+});
+
+check("the delegation walk is bounded, so a cycle or a deep chain cannot hang a tool call", () => {
+  const a = { id: "a", header: { id: "a", origin: "subagent", parentSession: "b" } };
+  const b = { id: "b", header: { id: "b", origin: "subagent", parentSession: "a" } };
+  const cyclic = { selectionOf: () => SELECTION_INHERIT, parentOf: (id) => (id === "a" ? a : b) };
+  assert.equal(copyOnWriteSource(a, cyclic), undefined, "a cycle must terminate without a match");
+
+  /** Whether a delegating chain of `distance` hops still reaches its copy-on-write root. */
+  const reach = (distance) => {
+    const nodes = [];
+    for (let index = 0; index < distance; index += 1) {
+      nodes.push({ id: `d${index}`, header: { id: `d${index}`, origin: "subagent", parentSession: `d${index + 1}` } });
+    }
+    const root = { id: `d${distance}`, header: { id: `d${distance}` } };
+    nodes.push(root);
+    const byId = new Map(nodes.map((session) => [session.id, session]));
+    const source = copyOnWriteSource(nodes[0], {
+      selectionOf: (session) => (session.id === root.id ? SELECTION_COPY_ON_WRITE : SELECTION_INHERIT),
+      parentOf: (id) => byId.get(id)
+    });
+    return source === root;
+  };
+  assert.equal(reach(MAX_DELEGATION_DEPTH), true, "a chain within the limit still resolves");
+  assert.equal(reach(MAX_DELEGATION_DEPTH + 1), false, "beyond the limit the walk fails back to stock, it does not run forever");
 });
 
 check("box naming is a stable, readable, mode-scoped word pair", () => {

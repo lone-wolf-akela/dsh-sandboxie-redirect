@@ -54,6 +54,20 @@
 
 ## 已知问题与规避
 
+- **子代理不继承自定义预设，本插件必须自己补上**：`dsh-subagent` 的
+  `captureDelegatedPolicyOverrides()` 只把 `auto` / `danger-full-access` 种进子会话
+  （并把 approval 钉成 `never`），自定义预设因此在**委派边界被丢掉**：子会话的
+  `permissions` 投影读 `custom`。PTC 下这不是"降级"而是全挂——PTC 运行时经
+  `sandbox.confine()` 启动，落到 stock `windows-acl` 的 `materializeAclGrant()`，
+  而 `SetNamedSecurityInfoW`（DACL + Low 完整性标签 SACL）要求工作区给它
+  **WRITE_OWNER**；继承来的 DACL 只给 Modify（典型：在管理员创建的父目录下新建的
+  目录）时该调用报 `Win32 5`，子代理的运行时根本起不来（现象是
+  `code run failed (worker-exit): …windows-acl workspace grant failed…`，任何工具都
+  调不动）。所以 `provider.mjs` 的 `isCopyOnWrite()` 与 `note.mjs` 的说明都走
+  `redirect.mjs` 的 `copyOnWriteSource()`：`origin: "subagent"` 且自己没有显式预设的
+  子会话沿 `header.parentSession` 继承（上限 `MAX_DELEGATION_DEPTH`，防环）；子会话
+  自己选的预设优先，`read-only` 策略永不走重定向 runner（它恒以 workspace-write
+  执行）。`test/provider-delegation.mjs` 用桩 `core.mjs` 驱动真模块，钉住这两处消费方。
 - **升权说明的文本不归本插件所有，也不该去改**：`sandbox_permissions` 的参数描述来自 `@deepseek-ai/dsh-sandbox` 的 `sandboxPermissionsDescription(subject)`，被 `dsh-tool-pwsh` / `dsh-tool-bash` / `dsh-tool-fs` 在**注册工具时**烘进参数 schema，而 `dsh-tools` 对编译结果做了 `deepFreeze()`（`lib/index.js` 的 `binding(deepFreeze(schema))`），并且它是 **registry 全局**的——同一段文本服务所有预设，这正是上游"schema 是全局的，有效模式才是每次调用的事实"的设计。因此按会话纠正它只有一条路：我们自己拥有的 `sandbox:copy-on-write` systemPrompt 文本（`redirectPolicyNote`）。那段文本必须**显式纠正**"先被拒、再重试"的措辞，并说明本模式下区外写入**根本不会被拒**、不会出现 `[sandbox: file access denied under … mode]`、也就没有"被拒的命令"可重试（`test/unit.mjs` 有三条断言钉住这一点）。正解在上游：需要"按模式提供升权文案"的扩展点。
 - **遗留 `sandbox/box` 事件**：只容忍、不采信。它记录的是历史，不是"沙盒现在存在"的证据；投影从不据此报出名称。
 - **投影 state 会被 checkpoint**：改投影语义需升 `stateVersion` 作废旧缓存行。
@@ -89,6 +103,7 @@ node test\sbie-locate.mjs                      # 安装目录查找（不需要 
 node test\dsh-locate.mjs                       # DSH 自身安装位置查找（同上，含真机 canary）
 node test\tool-execute.mjs                     # sandbox_clear 的 status / inspect / clear 三条执行路径（离线）
 node test\host-projection.mjs
+node test\provider-delegation.mjs             # 子代理继承写时复制：runner 选择 + 策略文本（离线，桩 core.mjs）
 node test\validate-patch.mjs                   # 默认校验本仓库的 cordis.patch.yml（bundle 层）
 node test\validate-patch.mjs <某个 patch.yml>   # 也可校验 profile 补丁 / 手工通道
 ```

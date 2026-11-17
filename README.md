@@ -107,6 +107,7 @@ In-session, `sandbox_clear` inspects or discards this workspace's copy: `mode: "
 - **Disk usage**: copies are not reclaimed automatically and keep growing.
 - **`C:\Windows\Temp`**: modifying an *existing* file there may be refused — native Sandboxie behavior, not this plugin's. Creating and deleting files there works.
 - **Concurrency**: concurrent commands in one workspace share one box and see each other's changes.
+- **Subagents (including team teammates) inherit the parent's preset**: DSH only seeds `auto` / `danger-full-access` into a delegated session, so a custom preset does not carry over by itself. This plugin follows `parentSession`: when the parent runs Copy-on-write, the subagent's shell commands run in the same box and its policy text says so. A preset the child chose itself still wins, and a read-only policy never takes the redirect (from 0.3.7).
 - **Escalation**: if a command escalates for wider permissions, that single call runs entirely outside the box; the next command returns to the box. Escalation is not a way to make one file real.
 - **Write-back**: copy changes are not merged back automatically. Recover files in SandMan; `sandbox_clear` only deletes.
 - **Uninstalling** the bundle removes the preset and the rows, but the boxes and their copies stay on disk. Clean them first (`sandbox_clear`, or `--manage clean`) if you want the space back.

@@ -3,6 +3,37 @@
 Notable changes per release. The format is loose; the version numbers are what
 the DSH compatibility gate reads.
 
+## 0.3.7 — 2026-11-17
+
+**A delegated subagent of a copy-on-write session could not run any tool**
+
+- DSH seeds a delegated session with only `auto` and `danger-full-access`, and
+  pins the child's approval policy to `never`
+  (`captureDelegatedPolicyOverrides`). A custom preset such as this one was
+  therefore dropped at the delegation boundary: the child's `permissions`
+  projection read `custom`, and its commands were confined by the stock
+  `windows-acl` runner instead of the workspace's Sandboxie box.
+- Under programmatic tool calling that is fatal, not cosmetic. PTC starts its
+  runtime through `sandbox.confine()`, and the stock `workspace-write` grant has
+  to write a Low mandatory label (a SACL edit) via `SetNamedSecurityInfoW`,
+  which needs **WRITE_OWNER** on the workspace. A workspace whose inherited DACL
+  grants only Modify — e.g. one created under an elevated parent directory —
+  fails that grant with `Win32 5`. The child's runtime then never starts, so the
+  delegated agent reports `code run failed (worker-exit): …windows-acl workspace
+  grant failed…` on every attempt and no tool call works at all.
+- The provider now follows the delegation chain: a session with `origin:
+  "subagent"` and no explicit preset of its own inherits the copy-on-write
+  selection of the session that delegated it, walking `header.parentSession`
+  up to `MAX_DELEGATION_DEPTH` (cycles and absurd chains fall back to stock). An
+  explicit preset on the child still wins, and a `read-only` policy never takes
+  the redirect runner (which always executes workspace-write).
+- The model-facing note follows the same rule, so a subagent is told that its
+  shell commands run in the box too.
+- `test/provider-delegation.mjs` (new) drives the real `lib/` modules with a
+  stubbed `core.mjs`: it pins the delegated-session choice, the cases that must
+  NOT inherit, and both consumers of the decision. `test/unit.mjs` covers the
+  pure walk, including the cycle and depth limits.
+
 ## 0.3.6 — 2026-11-14
 
 **Plugin manager shows a name and an icon**
